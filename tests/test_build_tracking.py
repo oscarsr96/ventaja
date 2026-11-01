@@ -176,7 +176,7 @@ def test_build_tracking_truncated_gzip_raises_corrupt(
     gz.write_bytes(raw[: len(raw) // 2])
     settings = Settings(data_dir=data_dir, build_dir=tmp_path / "build")
 
-    with pytest.raises(CorruptFileError, match="ventaja data pull") as exc:
+    with pytest.raises(CorruptFileError, match="ventaja data pull --game 114243") as exc:
         build_tracking(114243, settings)
     assert str(gz) in str(exc.value)
     assert not settings.tracking_parquet(114243).exists()
@@ -184,7 +184,7 @@ def test_build_tracking_truncated_gzip_raises_corrupt(
 
 def test_build_tracking_missing_raw_raises_with_hint(tmp_path: Path) -> None:
     settings = Settings(data_dir=tmp_path / "data", build_dir=tmp_path / "build")
-    with pytest.raises(DataNotFoundError, match="ventaja data pull"):
+    with pytest.raises(DataNotFoundError, match="ventaja data pull --game 114243"):
         build_tracking(114243, settings)
 
 

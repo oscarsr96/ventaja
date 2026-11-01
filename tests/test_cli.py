@@ -40,7 +40,7 @@ def test_data_build_missing_raw_reports_hint(
     monkeypatch.setenv("VENTAJA_BUILD_DIR", str(fixture_settings.build_dir))
     result = CliRunner().invoke(app, ["data", "build", "--game", "114086"])
     assert result.exit_code == 1
-    assert "ventaja data pull" in result.output
+    assert "ventaja data pull --game 114086" in result.output
 
 
 def test_data_build_writes_tracking_unless_events_only(

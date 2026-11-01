@@ -10,7 +10,13 @@ from typing import Any
 import polars as pl
 
 from ventaja.config import Settings
-from ventaja.data.load import apply_aliases, load_aliases, read_raw_json, require_raw
+from ventaja.data.load import (
+    apply_aliases,
+    load_aliases,
+    pull_hint,
+    read_raw_json,
+    require_raw,
+)
 from ventaja.errors import CorruptFileError
 
 EVENT_TABLES: tuple[str, ...] = (
@@ -115,7 +121,7 @@ def build_events(game_id: int, settings: Settings) -> dict[str, Path]:
 
     Overwrites existing files. Returns the path written for each table.
     """
-    raw = read_raw_json(settings.raw_path(dynamic_events_relpath(game_id)))
+    raw = read_raw_json(settings.raw_path(dynamic_events_relpath(game_id)), game_id)
     aliases = load_aliases(settings)
     out: dict[str, Path] = {}
     for table in EVENT_TABLES:
@@ -191,7 +197,7 @@ def build_tracking(game_id: int, settings: Settings) -> Path:
     Overwrites an existing file; a truncated or corrupt gzip raises CorruptFileError and
     leaves no parquet behind.
     """
-    raw = require_raw(settings.raw_path(tracking_relpath(game_id)))
+    raw = require_raw(settings.raw_path(tracking_relpath(game_id)), game_id)
     aliases = load_aliases(settings)
     out = settings.tracking_parquet(game_id)
     out.unlink(missing_ok=True)
@@ -199,7 +205,7 @@ def build_tracking(game_id: int, settings: Settings) -> Path:
         batches = [apply_aliases(b, aliases) for b in _tracking_batches(raw, game_id)]
     except (EOFError, OSError, json.JSONDecodeError) as exc:
         raise CorruptFileError(
-            f"{raw} is truncated or corrupt ({exc}); run `ventaja data pull` to download it again"
+            f"{raw} is truncated or corrupt ({exc}); run {pull_hint(game_id)} to download it again"
         ) from exc
     out.parent.mkdir(parents=True, exist_ok=True)
     pl.concat(batches).write_parquet(out)

@@ -23,7 +23,7 @@ def test_load_game_reads_rosters(fixture_settings: Settings) -> None:
 
 
 def test_load_game_missing_raises_with_hint(fixture_settings: Settings) -> None:
-    with pytest.raises(DataNotFoundError, match="ventaja data pull"):
+    with pytest.raises(DataNotFoundError, match="ventaja data pull --game 114086"):
         load_game(114086, fixture_settings)
 
 

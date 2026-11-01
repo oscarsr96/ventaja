@@ -35,16 +35,25 @@ def game_data_relpath(game_id: int) -> str:
     return f"matches/{game_id}/{game_id}_game_data.json"
 
 
-def require_raw(path: Path) -> Path:
-    """Return ``path`` if it exists, else raise DataNotFoundError with a pull hint."""
+def pull_hint(game_id: int | None = None) -> str:
+    """The ``ventaja data pull`` command that downloads a game's files (or the common ones)."""
+    return "`ventaja data pull`" if game_id is None else f"`ventaja data pull --game {game_id}`"
+
+
+def require_raw(path: Path, game_id: int | None = None) -> Path:
+    """Return ``path`` if it exists, else raise DataNotFoundError with a pull hint.
+
+    Pass ``game_id`` for per-game files so the hint downloads that game, not only the
+    common files.
+    """
     if not path.exists():
-        raise DataNotFoundError(f"{path} not found; run `ventaja data pull` first")
+        raise DataNotFoundError(f"{path} not found; run {pull_hint(game_id)} first")
     return path
 
 
-def read_raw_json(path: Path) -> Any:
+def read_raw_json(path: Path, game_id: int | None = None) -> Any:
     """Parse a raw JSON file, raising DataNotFoundError with a hint if it is missing."""
-    return json.loads(require_raw(path).read_text())
+    return json.loads(require_raw(path, game_id).read_text())
 
 
 def load_aliases(settings: Settings) -> dict[int, int]:
@@ -124,7 +133,7 @@ def _team(raw: dict[str, Any], aliases: dict[int, int]) -> Team:
 
 def load_game(game_id: int, settings: Settings) -> Game:
     """Metadata and rosters of one game, with canonical player ids."""
-    raw = read_raw_json(settings.raw_path(game_data_relpath(game_id)))
+    raw = read_raw_json(settings.raw_path(game_data_relpath(game_id)), game_id)
     aliases = load_aliases(settings)
     return Game(
         game_id=raw["gameId"],
