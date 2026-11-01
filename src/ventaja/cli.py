@@ -15,7 +15,8 @@ from ventaja.data import build as build_module
 from ventaja.data import pull as pull_module
 from ventaja.data.catalog import files_for
 from ventaja.data.duck import connect
-from ventaja.errors import VentajaError
+from ventaja.decision.align import Aligner
+from ventaja.errors import DataNotFoundError, VentajaError
 
 app = typer.Typer(name="ventaja", no_args_is_help=True)
 data = typer.Typer(help="Download, inspect and build SkillCorner data.", no_args_is_help=True)
@@ -152,3 +153,43 @@ def sql(
     else:
         with pl.Config(tbl_rows=50, tbl_cols=20):
             typer.echo(repr(df))
+
+
+def _game_of_shot(shot_id: str) -> int:
+    """Game id embedded in a shot id of the form ``shot-{game_id}-{period}-{n}``."""
+    parts = shot_id.split("-")
+    if len(parts) != 4 or parts[0] != "shot" or not parts[1].isdigit():
+        raise DataNotFoundError(f"cannot parse a game id from shot id {shot_id!r}; pass --game")
+    return int(parts[1])
+
+
+@app.command("snapshot")
+def snapshot(
+    shot_id: Annotated[str, typer.Argument(help="Shot id, e.g. shot-114243-1-0.")],
+    game: Annotated[
+        int | None, typer.Option("--game", help="Game id (parsed from the shot id if omitted).")
+    ] = None,
+) -> None:
+    """Print the offense-oriented snapshot at a shot's frame; the shooter is marked *."""
+    try:
+        settings = Settings.from_env()
+        game_id = game if game is not None else _game_of_shot(shot_id)
+        aligner = Aligner(game_id, settings)
+        shooter = aligner.shot(shot_id)["shooter_id"]
+        snap = aligner.snapshot_for_shot(shot_id)
+    except VentajaError as exc:
+        typer.echo(f"error: {exc}", err=True)
+        raise typer.Exit(code=1) from exc
+    shot_clock = "-" if snap.shot_clock is None else f"{snap.shot_clock:.2f}"
+    typer.echo(
+        f"frame {snap.frame_idx}  period {snap.period}  "
+        f"game_clock {snap.game_clock:.2f}  shot_clock {shot_clock}"
+    )
+    typer.echo(f"  {'player_id':>9} {'team_id':>7} {'side':4} {'x':>7} {'y':>7} {'speed':>6}")
+    for side, players in (("OFF", snap.offense), ("DEF", snap.defense)):
+        for p in players:
+            mark = "*" if p.player_id == shooter else " "
+            typer.echo(
+                f"{mark} {p.player_id:>9} {p.team_id:>7} {side:4} "
+                f"{p.x:>7.2f} {p.y:>7.2f} {p.speed:>6.2f}"
+            )
