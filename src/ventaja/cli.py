@@ -7,12 +7,14 @@ import httpx
 import typer
 
 from ventaja import __version__
-from ventaja.config import Settings
+from ventaja.config import GAME_IDS, Settings
+from ventaja.data import build as build_module
 from ventaja.data import pull as pull_module
 from ventaja.data.catalog import files_for
+from ventaja.errors import VentajaError
 
 app = typer.Typer(name="ventaja", no_args_is_help=True)
-data = typer.Typer(help="Download and inspect raw SkillCorner data.", no_args_is_help=True)
+data = typer.Typer(help="Download, inspect and build SkillCorner data.", no_args_is_help=True)
 app.add_typer(data, name="data")
 
 
@@ -81,3 +83,21 @@ def data_status(game: GameOption = None, all_games: AllOption = False) -> None:
     for f, present in rows:
         typer.echo(f"{'present' if present else 'missing'} {f.relpath}")
     typer.echo(f"{sum(p for _, p in rows)}/{len(rows)} present")
+
+
+@data.command("build")
+def data_build(game: GameOption = None, all_games: AllOption = False) -> None:
+    """Build parquet tables from raw files for the selected games."""
+    if not game and not all_games:
+        typer.echo("error: choose games with --game ID (repeatable) or --all", err=True)
+        raise typer.Exit(code=2)
+    settings = Settings.from_env()
+    for game_id in GAME_IDS if all_games else game or []:
+        try:
+            written = build_module.build_events(game_id, settings)
+        except VentajaError as exc:
+            typer.echo(f"error: {exc}", err=True)
+            raise typer.Exit(code=1) from exc
+        for table, path in written.items():
+            typer.echo(f"wrote {game_id} {table} -> {path}")
+        # Task 6: build tracking here (skipped with --events-only).
