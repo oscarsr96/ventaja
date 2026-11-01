@@ -44,3 +44,6 @@ packages = ["ventaja"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+markers = [
+    "realdata: needs the full SkillCorner data (VENTAJA_REALDATA_DIR, VENTAJA_REALDATA_BUILD_DIR)",
+]
