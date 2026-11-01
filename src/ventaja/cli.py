@@ -1,9 +1,12 @@
 """Command-line entry point for ventaja."""
 
+import sys
 from collections.abc import Callable
 from typing import Annotated
 
+import duckdb
 import httpx
+import polars as pl
 import typer
 
 from ventaja import __version__
@@ -11,6 +14,7 @@ from ventaja.config import GAME_IDS, Settings
 from ventaja.data import build as build_module
 from ventaja.data import pull as pull_module
 from ventaja.data.catalog import files_for
+from ventaja.data.duck import connect
 from ventaja.errors import VentajaError
 
 app = typer.Typer(name="ventaja", no_args_is_help=True)
@@ -109,3 +113,25 @@ def data_build(
         except VentajaError as exc:
             typer.echo(f"error: {exc}", err=True)
             raise typer.Exit(code=1) from exc
+
+
+@app.command("sql")
+def sql(
+    query: Annotated[str, typer.Argument(help="SQL over the built tables and tracking.")],
+    csv: Annotated[bool, typer.Option("--csv", help="Write CSV to stdout.")] = False,
+) -> None:
+    """Run SQL against the built parquet files through DuckDB."""
+    con = connect(Settings.from_env())
+    try:
+        rel = con.sql(query)
+        df = pl.DataFrame(
+            rel.fetchall(), schema=rel.columns, orient="row", infer_schema_length=None
+        )
+    except duckdb.Error as exc:
+        typer.echo(f"error: {exc}", err=True)
+        raise typer.Exit(code=1) from exc
+    if csv:
+        df.write_csv(sys.stdout)
+    else:
+        with pl.Config(tbl_rows=50, tbl_cols=20):
+            typer.echo(repr(df))
