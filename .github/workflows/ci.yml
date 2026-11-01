@@ -3,15 +3,47 @@ name: CI
 on:
   push:
   pull_request:
+  schedule:
+    - cron: "0 6 * * 1"
+  workflow_dispatch:
 
 jobs:
   quality:
+    if: github.event_name != 'schedule'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v5
-      - run: uv sync --all-extras --dev
+      - run: uv sync --dev
       - run: uv run ruff check .
       - run: uv run ruff format --check .
       - run: uv run mypy
       - run: uv run pytest
+
+  pipeline:
+    if: github.event_name != 'schedule'
+    needs: quality
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+      - uses: actions/cache@v4
+        with:
+          path: ~/.cache/ventaja/raw
+          key: skillcorner-raw-114243-v1
+      - run: uv sync
+      - run: uv run ventaja data pull --game 114243
+      - run: uv run ventaja data build --game 114243
+      - run: uv run ventaja validate score --game 114243
+      - run: uv run ventaja snapshot shot-114243-1-0
+
+  pipeline-all:
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+      - run: uv sync
+      - run: uv run ventaja data pull --all
+      - run: uv run ventaja data build --all
+      - run: uv run ventaja validate score --all
