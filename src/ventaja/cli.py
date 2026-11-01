@@ -115,17 +115,34 @@ def data_build(
             raise typer.Exit(code=1) from exc
 
 
+def _unique(names: list[str]) -> list[str]:
+    """Suffix repeated column names with _1, _2, ... so Polars accepts them."""
+    seen: dict[str, int] = {}
+    out: list[str] = []
+    for name in names:
+        n = seen.get(name, 0)
+        seen[name] = n + 1
+        out.append(name if n == 0 else f"{name}_{n}")
+    return out
+
+
 @app.command("sql")
 def sql(
     query: Annotated[str, typer.Argument(help="SQL over the built tables and tracking.")],
     csv: Annotated[bool, typer.Option("--csv", help="Write CSV to stdout.")] = False,
 ) -> None:
     """Run SQL against the built parquet files through DuckDB."""
-    con = connect(Settings.from_env())
     try:
+        con = connect(Settings.from_env())
         rel = con.sql(query)
+        if rel is None:
+            typer.echo("ok (no rows)")
+            return
         df = pl.DataFrame(
-            rel.fetchall(), schema=rel.columns, orient="row", infer_schema_length=None
+            rel.fetchall(),
+            schema=_unique(rel.columns),
+            orient="row",
+            infer_schema_length=None,
         )
     except duckdb.Error as exc:
         typer.echo(f"error: {exc}", err=True)

@@ -56,3 +56,34 @@ def test_cli_sql_csv_and_error(built_fixture: Settings, monkeypatch) -> None:  #
     assert ok.output.splitlines() == ["one,two", "1,2"]
     bad = CliRunner().invoke(app, ["sql", "select * from nope"])
     assert bad.exit_code == 1
+
+
+def test_cli_sql_join_with_duplicate_column_names(built_fixture: Settings, monkeypatch) -> None:  # type: ignore[no-untyped-def]
+    monkeypatch.setenv("VENTAJA_BUILD_DIR", str(built_fixture.build_dir))
+    result = CliRunner().invoke(
+        app,
+        [
+            "sql",
+            "select * from shots s join tracking t on t.frame_idx = s.start_frame "
+            "and t.player_id = s.shooter_id",
+            "--csv",
+        ],
+    )
+    assert result.exit_code == 0
+    assert "game_id_1" in result.output.splitlines()[0]
+
+
+def test_cli_sql_statement_without_rows(built_fixture: Settings, monkeypatch) -> None:  # type: ignore[no-untyped-def]
+    monkeypatch.setenv("VENTAJA_BUILD_DIR", str(built_fixture.build_dir))
+    result = CliRunner().invoke(app, ["sql", "create table t as select 1 as a"])
+    assert result.exit_code == 0
+
+
+def test_cli_sql_corrupt_parquet_exits_1(tmp_path: Path, monkeypatch) -> None:  # type: ignore[no-untyped-def]
+    path = tmp_path / "build" / "events" / "1" / "shots.parquet"
+    path.parent.mkdir(parents=True)
+    path.write_bytes(b"garbage")
+    monkeypatch.setenv("VENTAJA_BUILD_DIR", str(tmp_path / "build"))
+    result = CliRunner().invoke(app, ["sql", "select count(*) from shots"])
+    assert result.exit_code == 1
+    assert "error:" in result.output
