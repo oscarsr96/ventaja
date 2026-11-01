@@ -12,3 +12,6 @@ def fixture_settings(tmp_path: Path) -> Settings:
         data_dir=Path(__file__).parent / "fixtures" / "114243",
         build_dir=tmp_path / "build",
     )
+
+
+FIXTURE_SHOT_COUNT = 20
