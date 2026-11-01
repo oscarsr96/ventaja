@@ -53,3 +53,11 @@ def test_catalog_all_games_defaults_to_ten() -> None:
 def test_catalog_rejects_unknown_game() -> None:
     with pytest.raises(VentajaError, match="unknown game 999"):
         files_for([999])
+
+
+def test_env_paths_expand_user(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("VENTAJA_DATA_DIR", "~/x")
+    monkeypatch.setenv("VENTAJA_BUILD_DIR", "~/y")
+    s = Settings.from_env()
+    assert s.data_dir == Path.home() / "x"
+    assert s.build_dir == Path.home() / "y"

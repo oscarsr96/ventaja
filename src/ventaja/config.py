@@ -38,8 +38,8 @@ class Settings(BaseModel):
         data_dir = os.environ.get("VENTAJA_DATA_DIR")
         build_dir = os.environ.get("VENTAJA_BUILD_DIR")
         return cls(
-            data_dir=Path(data_dir) if data_dir else _CACHE_ROOT / "raw",
-            build_dir=Path(build_dir) if build_dir else _CACHE_ROOT / "build",
+            data_dir=Path(data_dir).expanduser() if data_dir else _CACHE_ROOT / "raw",
+            build_dir=Path(build_dir).expanduser() if build_dir else _CACHE_ROOT / "build",
         )
 
     def raw_path(self, relpath: str) -> Path:
