@@ -143,3 +143,24 @@ def load_events(game_id: int, table: str, settings: Settings) -> pl.DataFrame:
             f"{path} not found; run `ventaja data build --game {game_id}` first"
         )
     return pl.read_parquet(path)
+
+
+def load_tracking(game_id: int, settings: Settings) -> pl.LazyFrame:
+    """The built long-format tracking table of a game, scanned lazily."""
+    path = settings.tracking_parquet(game_id)
+    if not path.exists():
+        raise DataNotFoundError(
+            f"{path} not found; run `ventaja data build --game {game_id}` first"
+        )
+    return pl.scan_parquet(path)
+
+
+def frame_range(game_id: int, settings: Settings) -> tuple[int, int]:
+    """First and last ``frame_idx`` with tracking data in a game."""
+    row = (
+        load_tracking(game_id, settings)
+        .select(lo=pl.col("frame_idx").min(), hi=pl.col("frame_idx").max())
+        .collect()
+        .row(0)
+    )
+    return int(row[0]), int(row[1])

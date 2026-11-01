@@ -86,7 +86,13 @@ def data_status(game: GameOption = None, all_games: AllOption = False) -> None:
 
 
 @data.command("build")
-def data_build(game: GameOption = None, all_games: AllOption = False) -> None:
+def data_build(
+    game: GameOption = None,
+    all_games: AllOption = False,
+    events_only: Annotated[
+        bool, typer.Option("--events-only", help="Skip the slow tracking build.")
+    ] = False,
+) -> None:
     """Build parquet tables from raw files for the selected games."""
     if not game and not all_games:
         typer.echo("error: choose games with --game ID (repeatable) or --all", err=True)
@@ -95,9 +101,11 @@ def data_build(game: GameOption = None, all_games: AllOption = False) -> None:
     for game_id in GAME_IDS if all_games else game or []:
         try:
             written = build_module.build_events(game_id, settings)
+            for table, path in written.items():
+                typer.echo(f"wrote {game_id} {table} -> {path}")
+            if not events_only:
+                path = build_module.build_tracking(game_id, settings)
+                typer.echo(f"wrote {game_id} tracking -> {path}")
         except VentajaError as exc:
             typer.echo(f"error: {exc}", err=True)
             raise typer.Exit(code=1) from exc
-        for table, path in written.items():
-            typer.echo(f"wrote {game_id} {table} -> {path}")
-        # Task 6: build tracking here (skipped with --events-only).
