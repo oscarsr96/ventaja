@@ -17,10 +17,13 @@ from ventaja.data.catalog import files_for
 from ventaja.data.duck import connect
 from ventaja.decision.align import Aligner
 from ventaja.errors import DataNotFoundError, VentajaError
+from ventaja.validate import score as score_module
 
 app = typer.Typer(name="ventaja", no_args_is_help=True)
 data = typer.Typer(help="Download, inspect and build SkillCorner data.", no_args_is_help=True)
 app.add_typer(data, name="data")
+validate = typer.Typer(help="Check the event model against official data.", no_args_is_help=True)
+app.add_typer(validate, name="validate")
 
 
 def _version_callback(value: bool) -> None:
@@ -193,3 +196,23 @@ def snapshot(
                 f"{mark} {p.player_id:>9} {p.team_id:>7} {side:4} "
                 f"{p.x:>7.2f} {p.y:>7.2f} {p.speed:>6.2f}"
             )
+
+
+@validate.command("score")
+def validate_score(game: GameOption = None, all_games: AllOption = False) -> None:
+    """Rebuild final scores from shots and free throws and compare with matches.json."""
+    if not game and not all_games:
+        typer.echo("error: choose games with --game ID (repeatable) or --all", err=True)
+        raise typer.Exit(code=2)
+    try:
+        rows = score_module.check_scores(GAME_IDS if all_games else game or [], Settings.from_env())
+    except VentajaError as exc:
+        typer.echo(f"error: {exc}", err=True)
+        raise typer.Exit(code=1) from exc
+    for game_id, got, official, ok in rows:
+        typer.echo(
+            f"game {game_id}: {got.home}-{got.away} "
+            f"(official {official.home}-{official.away}) {'ok' if ok else 'MISMATCH'}"
+        )
+    if not all(ok for *_, ok in rows):
+        raise typer.Exit(code=1)
