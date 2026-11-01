@@ -55,15 +55,20 @@ class Aligner:
         Raises NoTrackingError if the frame has no tracking rows and VentajaError if it lies
         outside every possession (so it cannot be oriented).
         """
-        rows = self._tracking.filter(pl.col("frame_idx") == frame_idx).collect()
-        if rows.height == 0:
-            raise NoTrackingError(f"game {self.game_id} has no tracking at frame {frame_idx}")
+        rows = self._frame_rows(frame_idx)
         possession = self.possession_at(frame_idx)
         if possession is None:
             raise VentajaError(
                 f"game {self.game_id}: frame {frame_idx} is outside every possession, cannot orient"
             )
         return self._build(rows, possession)
+
+    def _frame_rows(self, frame_idx: int) -> pl.DataFrame:
+        """Tracking rows of one frame; raises NoTrackingError if there are none."""
+        rows = self._tracking.filter(pl.col("frame_idx") == frame_idx).collect()
+        if rows.height == 0:
+            raise NoTrackingError(f"game {self.game_id} has no tracking at frame {frame_idx}")
+        return rows
 
     def shot(self, shot_id: str) -> dict[str, Any]:
         """The ``shots`` row with ``id == shot_id``; raises DataNotFoundError if absent."""
@@ -73,8 +78,21 @@ class Aligner:
         return hit.row(0, named=True)
 
     def snapshot_for_shot(self, shot_id: str) -> Snapshot:
-        """Snapshot at the shot's ``start_frame``."""
-        return self.snapshot(int(self.shot(shot_id)["start_frame"]))
+        """Snapshot at the shot's ``start_frame``, oriented by the shot's own possession.
+
+        The possession is looked up by the shot's ``possession_id``, not by frame: some shots
+        fall outside their possession's frame span (e.g. end-of-period possessions with
+        ``start_frame == end_frame``). Raises DataNotFoundError if that possession is missing.
+        """
+        shot = self.shot(shot_id)
+        possession_id = shot["possession_id"]
+        hit = self._possessions.filter(pl.col("id") == possession_id)
+        if hit.height == 0:
+            raise DataNotFoundError(
+                f"game {self.game_id}: possession {possession_id} of shot {shot_id} not found"
+            )
+        frame_idx = int(shot["start_frame"])
+        return self._build(self._frame_rows(frame_idx), hit.row(0, named=True))
 
     def window(self, start: int, end: int) -> list[Snapshot]:
         """Snapshots of every tracked frame in ``[start, end]``, in order.

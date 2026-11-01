@@ -1,3 +1,5 @@
+import math
+
 import polars as pl
 import pytest
 from typer.testing import CliRunner
@@ -6,7 +8,7 @@ from ventaja.cli import app
 from ventaja.config import Settings
 from ventaja.data.load import load_events, load_tracking
 from ventaja.decision.align import Aligner
-from ventaja.errors import NoTrackingError, VentajaError
+from ventaja.errors import DataNotFoundError, NoTrackingError, VentajaError
 
 SHOT_ID = "shot-114243-1-0"
 SHOT_FRAME = 3895
@@ -131,3 +133,26 @@ def test_snapshot_with_unknown_offense_team_raises(built_fixture: Settings) -> N
     )
     with pytest.raises(VentajaError, match=r"frame 3895 .*off=999 def=1330"):
         a.snapshot(SHOT_FRAME)
+
+
+def test_snapshot_for_shot_uses_the_shots_own_possession(built_fixture: Settings) -> None:
+    # On real data some shots fall after their possession's end_frame (end-of-period
+    # possessions with start_frame == end_frame); the shot must still use its own possession.
+    a = Aligner(114243, built_fixture)
+    a._possessions = a._possessions.with_columns(
+        end_frame=pl.when(pl.col("id") == "possession-114243-1-2")
+        .then(SHOT_FRAME - 1)
+        .otherwise(pl.col("end_frame"))
+    )
+    s = a.snapshot_for_shot(SHOT_ID)
+    assert s.possession_id == "possession-114243-1-2"
+    assert SHOOTER in {p.player_id for p in s.offense}
+    shooter = s.player(SHOOTER)
+    assert math.hypot(shooter.x - (-23.53), shooter.y - (-6.66)) < 4
+
+
+def test_snapshot_for_shot_missing_possession_raises(built_fixture: Settings) -> None:
+    a = Aligner(114243, built_fixture)
+    a._possessions = a._possessions.filter(pl.col("id") != "possession-114243-1-2")
+    with pytest.raises(DataNotFoundError, match="possession-114243-1-2"):
+        a.snapshot_for_shot(SHOT_ID)
