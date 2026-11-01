@@ -1,3 +1,7 @@
+from pathlib import Path
+from typing import Any
+
+import httpx
 import pytest
 from typer.testing import CliRunner
 
@@ -56,3 +60,35 @@ def test_data_build_writes_tracking_unless_events_only(
     assert result.output.count("wrote ") == 21
     assert f"wrote 114243 tracking -> {tracking}" in result.output
     assert tracking.exists()
+
+
+def test_data_pull_network_error_prints_clean_error(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    def refuse(request: httpx.Request) -> httpx.Response:
+        raise httpx.ConnectError("connection refused", request=request)
+
+    real_client = httpx.Client
+
+    def offline_client(**kwargs: Any) -> httpx.Client:
+        return real_client(transport=httpx.MockTransport(refuse), **kwargs)
+
+    monkeypatch.setattr(httpx, "Client", offline_client)
+    monkeypatch.setenv("VENTAJA_DATA_DIR", str(tmp_path / "raw"))
+    monkeypatch.setenv("VENTAJA_BUILD_DIR", str(tmp_path / "build"))
+    result = CliRunner().invoke(app, ["data", "pull"])
+    assert result.exit_code == 1
+    assert result.exception is None or isinstance(result.exception, SystemExit)
+    assert "error: cannot download https://" in result.output
+    assert "matches.json" in result.output
+    assert "check your connection" in result.output
+
+
+def test_data_pull_unknown_game_is_rejected(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("VENTAJA_DATA_DIR", str(tmp_path / "raw"))
+    result = CliRunner().invoke(app, ["data", "pull", "--game", "999"])
+    assert result.exit_code == 1
+    assert isinstance(result.exception, SystemExit)
+    assert "error:" in result.output and "999" in result.output

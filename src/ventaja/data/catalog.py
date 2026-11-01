@@ -4,6 +4,7 @@ from collections.abc import Iterable
 from dataclasses import dataclass
 
 from ventaja.config import GAME_IDS
+from ventaja.errors import VentajaError
 
 RAW_BASE = "https://raw.githubusercontent.com/SkillCorner/opendata-basketball/main/data/"
 LFS_BASE = "https://media.githubusercontent.com/media/SkillCorner/opendata-basketball/main/data/"
@@ -27,8 +28,17 @@ class RemoteFile:
 
 
 def files_for(game_ids: Iterable[int] | None = None, *, tracking: bool = True) -> list[RemoteFile]:
-    """Remote files needed for the given games (all ten when None)."""
+    """Remote files needed for the given games (all ten when None).
+
+    Raises VentajaError for a game id that is not one of the ten in ``GAME_IDS``.
+    """
     ids = GAME_IDS if game_ids is None else tuple(game_ids)
+    unknown = [gid for gid in ids if gid not in GAME_IDS]
+    if unknown:
+        raise VentajaError(
+            f"unknown game {', '.join(map(str, unknown))}; "
+            f"available games: {', '.join(map(str, GAME_IDS))}"
+        )
     files = [RemoteFile(p, RAW_BASE + p, False) for p in _STATIC_FILES]
     for gid in ids:
         base = f"matches/{gid}/{gid}"

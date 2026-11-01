@@ -73,11 +73,21 @@ def data_pull(
 ) -> None:
     """Download raw files (only the common ones without --game/--all)."""
     settings = Settings.from_env()
-    files = files_for(_selection(game, all_games), tracking=not no_tracking)
+    try:
+        files = files_for(_selection(game, all_games), tracking=not no_tracking)
+    except VentajaError as exc:
+        typer.echo(f"error: {exc}", err=True)
+        raise typer.Exit(code=1) from exc
     with httpx.Client(follow_redirects=True, timeout=60.0) as client:
         for f in files:
             sizes: list[int] = []
-            pull_module.pull([f], settings, client=client, progress=_recorder(sizes))
+            try:
+                pull_module.pull([f], settings, client=client, progress=_recorder(sizes))
+            except httpx.HTTPError as exc:
+                typer.echo(
+                    f"error: cannot download {f.url}: {exc}; check your connection", err=True
+                )
+                raise typer.Exit(code=1) from exc
             if sizes:
                 typer.echo(f"pull {f.relpath} ({sizes[0]} bytes)")
             else:
@@ -87,7 +97,11 @@ def data_pull(
 @data.command("status")
 def data_status(game: GameOption = None, all_games: AllOption = False) -> None:
     """Show which raw files are present locally."""
-    rows = pull_module.status(Settings.from_env(), _selection(game, all_games))
+    try:
+        rows = pull_module.status(Settings.from_env(), _selection(game, all_games))
+    except VentajaError as exc:
+        typer.echo(f"error: {exc}", err=True)
+        raise typer.Exit(code=1) from exc
     for f, present in rows:
         typer.echo(f"{'present' if present else 'missing'} {f.relpath}")
     typer.echo(f"{sum(p for _, p in rows)}/{len(rows)} present")

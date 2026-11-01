@@ -4,6 +4,7 @@ import pytest
 
 from ventaja.config import Settings
 from ventaja.data.catalog import files_for
+from ventaja.errors import VentajaError
 
 
 def test_defaults_point_to_user_cache(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -47,3 +48,8 @@ def test_catalog_without_tracking_skips_lfs() -> None:
 
 def test_catalog_all_games_defaults_to_ten() -> None:
     assert sum(f.lfs for f in files_for(None)) == 10
+
+
+def test_catalog_rejects_unknown_game() -> None:
+    with pytest.raises(VentajaError, match="unknown game 999"):
+        files_for([999])
