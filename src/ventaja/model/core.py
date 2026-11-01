@@ -1,8 +1,6 @@
 """Core domain models: players, teams, games and match results."""
 
-from datetime import datetime
-
-from pydantic import BaseModel, ConfigDict
+from pydantic import AwareDatetime, BaseModel, ConfigDict
 
 
 class _Frozen(BaseModel):
@@ -30,7 +28,7 @@ class Game(_Frozen):
     """Metadata of one game: date, season and both rosters."""
 
     game_id: int
-    date: datetime
+    date: AwareDatetime
     season: str
     home: Team
     away: Team
@@ -47,7 +45,7 @@ class Match(_Frozen):
     """One entry of matches.json: teams and final score of a game."""
 
     game_id: int
-    date_time: datetime
+    date_time: AwareDatetime
     home_team_id: int
     away_team_id: int
     home_score: int

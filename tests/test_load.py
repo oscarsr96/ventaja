@@ -2,10 +2,12 @@ from datetime import UTC, datetime
 
 import polars as pl
 import pytest
+from pydantic import ValidationError
 
 from ventaja.config import Settings
 from ventaja.data.load import canonical, load_aliases, load_events, load_game, load_matches
 from ventaja.errors import DataNotFoundError
+from ventaja.model.core import Match
 
 
 def test_load_game_reads_rosters(fixture_settings: Settings) -> None:
@@ -53,3 +55,20 @@ def test_load_events_reads_built_table(built_fixture: Settings) -> None:
     shots = load_events(114243, "shots", built_fixture)
     assert isinstance(shots, pl.DataFrame)
     assert shots.height == 159
+
+
+def test_load_game_and_matches_dates_are_aware(fixture_settings: Settings) -> None:
+    assert load_game(114243, fixture_settings).date.tzinfo is not None
+    assert all(m.date_time.tzinfo is not None for m in load_matches(fixture_settings))
+
+
+def test_match_rejects_naive_datetime() -> None:
+    with pytest.raises(ValidationError):
+        Match(
+            game_id=1,
+            date_time=datetime(2025, 10, 11, 19, 0),
+            home_team_id=1,
+            away_team_id=2,
+            home_score=0,
+            away_score=0,
+        )

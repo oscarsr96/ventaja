@@ -13,13 +13,11 @@ from ventaja.model.core import Game, Match, Player, Team
 ALIASES_FILE = "player_id_aliases.csv"
 MATCHES_FILE = "matches.json"
 
-# Columns ending in ``_id`` that are not player ids: game/team ids and event-id references.
+# Columns ending in ``_id`` that are not player ids: the game id and event-id references.
+# Team ids (``team_id`` and every ``*_team_id``) are excluded by suffix.
 _NON_PLAYER_ID_COLUMNS = frozenset(
     {
         "game_id",
-        "team_id",
-        "off_team_id",
-        "def_team_id",
         "id",
         "chance_id",
         "possession_id",
@@ -65,14 +63,21 @@ def canonical(player_id: int, aliases: dict[int, int]) -> int:
 
 
 def _is_player_id_column(name: str, dtype: pl.DataType) -> bool:
-    return name.endswith("_id") and name not in _NON_PLAYER_ID_COLUMNS and dtype.is_integer()
+    is_team_id = name == "team_id" or name.endswith("_team_id")
+    return (
+        name.endswith("_id")
+        and not is_team_id
+        and name not in _NON_PLAYER_ID_COLUMNS
+        and dtype.is_integer()
+    )
 
 
 def apply_aliases(df: pl.DataFrame, aliases: dict[int, int]) -> pl.DataFrame:
     """Replace player ids by their canonical ids.
 
-    Applies to every integer column whose name ends in ``_id`` (except game, team and
-    event-id columns) and to the list columns ``off_player_ids`` / ``def_player_ids``.
+    Applies to every integer column whose name ends in ``_id`` (except ``game_id``, team ids
+    such as ``team_id`` / ``*_team_id``, and event-id columns) and to
+    the list columns ``off_player_ids`` / ``def_player_ids``.
     """
     if not aliases:
         return df

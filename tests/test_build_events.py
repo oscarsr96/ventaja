@@ -107,6 +107,19 @@ def test_build_events_applies_player_aliases(fixture_settings: Settings, tmp_pat
     assert 35028 not in possessions["off_player_ids"].explode().to_list()
 
 
+def test_build_events_does_not_alias_team_ids(fixture_settings: Settings, tmp_path: Path) -> None:
+    data_dir = _copy_fixture(tmp_path, fixture_settings)
+    with (data_dir / "player_id_aliases.csv").open("a") as fh:
+        fh.write("1330,Not A Player,999999,Not A Player,1\n")
+    settings = Settings(data_dir=data_dir, build_dir=tmp_path / "build")
+    fouls = pl.read_parquet(build_events(114243, settings)["fouls"])
+
+    for col in ("fouled_team_id", "fouler_team_id"):
+        values = fouls[col].to_list()
+        assert 1330 in values, col
+        assert 999999 not in values, col
+
+
 def test_build_events_handles_empty_table(fixture_settings: Settings, tmp_path: Path) -> None:
     data_dir = _copy_fixture(tmp_path, fixture_settings)
     events_path = data_dir / "matches/114243/114243_dynamic_events.json"
@@ -129,6 +142,8 @@ def test_apply_aliases_skips_team_and_event_ids() -> None:
             "team_id": [7],
             "off_team_id": [7],
             "def_team_id": [7],
+            "fouled_team_id": [7],
+            "fouler_team_id": [7],
             "shooter_id": [7],
             "off_player_ids": [[7, 8]],
             "def_player_ids": [[9, 7]],
@@ -140,7 +155,15 @@ def test_apply_aliases_skips_team_and_event_ids() -> None:
     assert row["shooter_id"] == 70
     assert row["off_player_ids"] == [70, 8]
     assert row["def_player_ids"] == [9, 70]
-    for col in ("game_id", "team_id", "off_team_id", "def_team_id", "period"):
+    for col in (
+        "game_id",
+        "team_id",
+        "off_team_id",
+        "def_team_id",
+        "fouled_team_id",
+        "fouler_team_id",
+        "period",
+    ):
         assert row[col] == 7, col
 
 
