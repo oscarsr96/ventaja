@@ -1,0 +1,36 @@
+"""DuckDB connection with one view per built parquet table."""
+
+import duckdb
+
+from ventaja.config import Settings
+from ventaja.data.build import EVENT_TABLES
+
+
+def _quote(path: object) -> str:
+    return "'" + str(path).replace("'", "''") + "'"
+
+
+def _create_view(con: duckdb.DuckDBPyConnection, name: str, files: list[str], union: bool) -> None:
+    if not files:
+        return
+    listing = ", ".join(_quote(f) for f in sorted(files))
+    options = ", union_by_name=true" if union else ""
+    con.execute(f"CREATE VIEW {name} AS SELECT * FROM read_parquet([{listing}]{options})")
+
+
+def connect(settings: Settings, *, read_only: bool = True) -> duckdb.DuckDBPyConnection:
+    """Open an in-memory DuckDB with a view per event table and one for tracking.
+
+    Tables without any built parquet get no view. Views are the only objects created;
+    ``read_only`` is kept for API stability (the connection is in-memory and nothing
+    is persisted either way).
+    """
+    del read_only
+    con = duckdb.connect()
+    build = settings.build_dir
+    for table in EVENT_TABLES:
+        files = [str(p) for p in (build / "events").glob(f"*/{table}.parquet")]
+        _create_view(con, table, files, union=True)
+    tracking = [str(p) for p in (build / "tracking").glob("*.parquet")]
+    _create_view(con, "tracking", tracking, union=True)
+    return con
