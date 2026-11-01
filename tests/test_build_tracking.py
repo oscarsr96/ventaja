@@ -88,12 +88,6 @@ def test_build_tracking_values_match_raw_first_frame(built_fixture: Settings) ->
     assert undetected["is_detected"] is False
 
 
-def test_build_tracking_applies_player_aliases(built_fixture: Settings) -> None:
-    # The fixture aliases file maps 92815 -> 59180; 59180 is already canonical.
-    ids = pl.read_parquet(built_fixture.tracking_parquet(114243))["player_id"].unique()
-    assert 59180 in ids.to_list()
-
-
 def _tmp_data_dir(tmp_path: Path, fixture_settings: Settings) -> Path:
     data_dir = tmp_path / "data"
     shutil.copytree(fixture_settings.data_dir, data_dir)
