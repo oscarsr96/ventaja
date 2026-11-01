@@ -156,3 +156,29 @@ def test_snapshot_for_shot_missing_possession_raises(built_fixture: Settings) ->
     a._possessions = a._possessions.filter(pl.col("id") != "possession-114243-1-2")
     with pytest.raises(DataNotFoundError, match="possession-114243-1-2"):
         a.snapshot_for_shot(SHOT_ID)
+
+
+def test_window_across_possession_boundary_orients_each_frame_by_its_possession(
+    built_fixture: Settings,
+) -> None:
+    # The fixture tracking is an excerpt, so pick the first possession boundary that has
+    # tracked frames on both sides (frame 10070, possession-114243-1-10 -> 1-11).
+    a = Aligner(114243, built_fixture)
+    tracked = set(a._tracking.select(pl.col("frame_idx").unique()).collect()["frame_idx"].to_list())
+    rows = a._possessions.rows(named=True)
+    before, after = next(
+        (p, q)
+        for p, q in zip(rows, rows[1:], strict=False)
+        if p["end_frame"] == q["start_frame"]
+        and all(f in tracked for f in range(p["end_frame"] - 10, p["end_frame"] + 11))
+    )
+    boundary = int(before["end_frame"])
+    assert before["left_hoop"] != after["left_hoop"]
+
+    snaps = a.window(boundary - 10, boundary + 10)
+    by_possession: dict[str, set[int]] = {}
+    for s in snaps:
+        by_possession.setdefault(s.possession_id, set()).add(s.off_team_id)
+    assert set(by_possession) == {before["id"], after["id"]}
+    assert all(len(teams) == 1 for teams in by_possession.values())
+    assert by_possession[before["id"]] != by_possession[after["id"]]

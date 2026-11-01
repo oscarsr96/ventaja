@@ -98,6 +98,10 @@ class Aligner:
         """Snapshots of every tracked frame in ``[start, end]``, in order.
 
         Frames without tracking are absent; frames outside every possession are skipped.
+
+        Each frame is oriented by its own possession (``possession_at``). A window that crosses
+        a possession boundary therefore flips orientation by 180 degrees and swaps offense and
+        defense at the boundary; consumers must split the result on ``possession_id``.
         """
         rows = (
             self._tracking.filter(pl.col("frame_idx").is_between(start, end))
