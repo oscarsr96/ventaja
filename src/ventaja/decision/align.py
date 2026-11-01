@@ -31,19 +31,22 @@ class Aligner:
 
     def __init__(self, game_id: int, settings: Settings) -> None:
         self.game_id = game_id
-        self._possessions = load_events(game_id, "possessions", settings)
-        self._chances = load_events(game_id, "chances", settings)
+        self._possessions = load_events(game_id, "possessions", settings).sort("start_frame")
+        self._chances = load_events(game_id, "chances", settings).sort("start_frame")
         self._shots = load_events(game_id, "shots", settings)
         game = load_game(game_id, settings)
         self._team_of_side = {"home": game.home.team_id, "away": game.away.team_id}
         self._tracking = load_tracking(game_id, settings)
 
     def possession_at(self, frame_idx: int) -> dict[str, Any] | None:
-        """The possession row containing ``frame_idx``, or None."""
+        """The possession row containing ``frame_idx``, or None.
+
+        Consecutive possessions share their boundary frame; there the earlier one wins.
+        """
         return _row_containing(self._possessions, frame_idx)
 
     def chance_at(self, frame_idx: int) -> dict[str, Any] | None:
-        """The chance row containing ``frame_idx``, or None."""
+        """The chance row containing ``frame_idx``, or None (earlier chance at a boundary)."""
         return _row_containing(self._chances, frame_idx)
 
     def snapshot(self, frame_idx: int) -> Snapshot:
@@ -94,6 +97,13 @@ class Aligner:
         """Assemble a Snapshot from the 11 tracking rows of one frame."""
         oriented = orient_frame(rows, bool(possession["left_hoop"]))
         off_team_id = int(possession["off_team_id"])
+        def_team_id = int(possession["def_team_id"])
+        if {off_team_id, def_team_id} != set(self._team_of_side.values()):
+            raise VentajaError(
+                f"game {self.game_id}: frame {int(rows['frame_idx'][0])} possession "
+                f"{possession['id']} has teams off={off_team_id} def={def_team_id}, "
+                f"expected {sorted(self._team_of_side.values())}"
+            )
         offense: list[PlayerPos] = []
         defense: list[PlayerPos] = []
         ball: BallPos | None = None
@@ -128,7 +138,7 @@ class Aligner:
             possession_id=possession["id"],
             chance_id=chance["id"] if chance else None,
             off_team_id=off_team_id,
-            def_team_id=int(possession["def_team_id"]),
+            def_team_id=def_team_id,
             offense=offense,
             defense=defense,
             ball=ball,

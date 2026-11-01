@@ -109,3 +109,25 @@ def test_snapshot_cli_unparseable_shot_id_asks_for_game(
     result = CliRunner().invoke(app, ["snapshot", "bogus"])
     assert result.exit_code == 1
     assert "--game" in result.output
+
+
+def test_snapshot_outside_possession_raises_when_possession_removed(
+    built_fixture: Settings,
+) -> None:
+    a = Aligner(114243, built_fixture)
+    a._possessions = a._possessions.filter(pl.col("id") != "possession-114243-1-2")
+    with pytest.raises(VentajaError, match="outside every possession"):
+        a.snapshot(SHOT_FRAME)
+    # possession-114243-1-2 spans frames 3642..3962; window skips its frames, no error.
+    assert a.window(SHOT_FRAME - 25, SHOT_FRAME) == []
+
+
+def test_snapshot_with_unknown_offense_team_raises(built_fixture: Settings) -> None:
+    a = Aligner(114243, built_fixture)
+    a._possessions = a._possessions.with_columns(
+        off_team_id=pl.when(pl.col("id") == "possession-114243-1-2")
+        .then(999)
+        .otherwise(pl.col("off_team_id"))
+    )
+    with pytest.raises(VentajaError, match=r"frame 3895 .*off=999 def=1330"):
+        a.snapshot(SHOT_FRAME)
