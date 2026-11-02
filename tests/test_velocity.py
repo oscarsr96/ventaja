@@ -104,3 +104,12 @@ def test_velocities_none_without_neighbours_or_missing_player() -> None:
     v = _velocities(_ctx({10: (1.0, True), 12: (3.0, False)}), 10, True)
     assert v[1] == pytest.approx((25.0, 0.0))
     assert v[2] == (None, None)
+
+
+def test_velocities_nearest_neighbour_prefers_distance_one_forward() -> None:
+    # f-2 and f+1 exist: the distance-1 forward neighbour wins over the distance-2 backward one
+    v = _velocities(_ctx({8: (0.0, True), 10: (1.0, True), 11: (3.0, True)}), 10, True)
+    assert v[1] == pytest.approx((2.0 * 25, 0.0))
+    # tie at equal distance: backward preferred
+    v = _velocities(_ctx({9: (0.0, True), 10: (1.0, True), 11: (5.0, True)}), 10, True)
+    assert v[1] == pytest.approx((1.0 * 25, 0.0))

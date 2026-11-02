@@ -9,7 +9,7 @@ from typing import Any
 
 import polars as pl
 
-from ventaja.config import Settings
+from ventaja.config import FPS, Settings
 from ventaja.data.load import load_events, load_game, load_tracking
 from ventaja.errors import DataNotFoundError, NoTrackingError, VentajaError
 from ventaja.geometry.court import orient_frame
@@ -22,7 +22,6 @@ def _row_containing(df: pl.DataFrame, frame_idx: int) -> dict[str, Any] | None:
     return hit.row(0, named=True) if hit.height else None
 
 
-_FPS = 25
 _REACH = 2  # neighbour frames read on each side of a frame for velocity
 
 Velocity = tuple[float | None, float | None]
@@ -46,7 +45,7 @@ def _velocities(
 
     def diff(key: int | str, a: int, b: int) -> Velocity:
         (xa, ya), (xb, yb) = pos[a][key], pos[b][key]
-        scale = _FPS / (b - a)
+        scale = FPS / (b - a)
         return ((xb - xa) * scale, (yb - ya) * scale)
 
     out: dict[int | str, Velocity] = {}
@@ -58,14 +57,17 @@ def _velocities(
         if has(-_REACH) and has(_REACH):
             out[key] = diff(key, frame_idx - _REACH, frame_idx + _REACH)
             continue
-        back = next((k for k in (1, 2) if has(-k)), None)
-        fwd = next((k for k in (1, 2) if has(k)), None)
-        if back is not None:
-            out[key] = diff(key, frame_idx - back, frame_idx)
-        elif fwd is not None:
-            out[key] = diff(key, frame_idx, frame_idx + fwd)
-        else:
+        # nearest existing neighbour, distance 1 before 2; backward wins a tie
+        nearest = next(
+            (off for off in (-1, 1, -2, 2) if has(off)),
+            None,
+        )
+        if nearest is None:
             out[key] = (None, None)
+        elif nearest < 0:
+            out[key] = diff(key, frame_idx + nearest, frame_idx)
+        else:
+            out[key] = diff(key, frame_idx, frame_idx + nearest)
     return out
 
 
@@ -161,15 +163,16 @@ class Aligner:
             .collect()
         )
         out: list[Snapshot] = []
-        for frame_idx in rows.filter(pl.col("frame_idx").is_between(start, end))[
-            "frame_idx"
-        ].unique(maintain_order=True):
-            possession = self.possession_at(int(frame_idx))
+        parts = {int(k[0]): v for k, v in rows.partition_by("frame_idx", as_dict=True).items()}
+        for frame_idx in sorted(f for f in parts if start <= f <= end):
+            possession = self.possession_at(frame_idx)
             if possession is not None:
-                near = rows.filter(
-                    pl.col("frame_idx").is_between(frame_idx - _REACH, frame_idx + _REACH)
+                near = pl.concat(
+                    parts[f]
+                    for f in range(frame_idx - _REACH, frame_idx + _REACH + 1)
+                    if f in parts
                 )
-                out.append(self._build(near, int(frame_idx), possession))
+                out.append(self._build(near, frame_idx, possession))
         return out
 
     def _build(self, context: pl.DataFrame, frame_idx: int, possession: dict[str, Any]) -> Snapshot:
