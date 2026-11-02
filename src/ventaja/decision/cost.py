@@ -96,6 +96,9 @@ def _confidence(snapshot: Snapshot) -> float:
 def decide(aligner: Aligner, shot_id: str, priors: Priors, model: ValueModel) -> Decision | None:
     """Value the shot against its four pass options at the decision frame.
 
+    When no pass is viable (best adjusted value 0.0) there is no alternative: the best-alt
+    fields are None, ``cost`` is 0.0 and ``good_read`` is None (not a read at all).
+
     Returns None if the shot's decision frame is excluded (no snapshot is read then). Raises
     ShooterOffCourtError if the shooter is not tracked in the decision frame.
     """
@@ -121,6 +124,9 @@ def decide(aligner: Aligner, shot_id: str, priors: Priors, model: ValueModel) ->
     )  # stable: ties keep row order, so the first maximal pass is the best
     best = passes[0] if passes else None
     best_value = best.adjusted_value if best else None
+    good_read: bool | None = best_value is None or best_value <= shot_option.value
+    if best_value == 0.0:  # no viable pass (e.g. shot clock under SHOT_CLOCK_MIN_PASS)
+        best, best_value, good_read = None, None, None
     return Decision(
         shot_id=shot_id,
         game_id=aligner.game_id,
@@ -134,7 +140,7 @@ def decide(aligner: Aligner, shot_id: str, priors: Priors, model: ValueModel) ->
         best_alt_type=best.alternative_type if best else None,
         best_alt_value=best_value,
         cost=max(0.0, (best_value or 0.0) - shot_option.value),
-        good_read=best_value is None or best_value <= shot_option.value,
+        good_read=good_read,
         confidence=_confidence(snapshot),
         options=[shot_option, *passes],
     )
@@ -154,7 +160,7 @@ DECISION_SCHEMA: dict[str, Any] = {
     "best_alt_type": pl.String,
     "best_alt_value": pl.Float64,
     "cost": pl.Float64,
-    "good_read": pl.Boolean,
+    "good_read": pl.Boolean,  # null when no pass is viable
     "confidence": pl.Float64,
 }
 OPTION_SCHEMA: dict[str, Any] = {

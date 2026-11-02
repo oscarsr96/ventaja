@@ -354,14 +354,13 @@ def _decision_summary(df: pl.DataFrame) -> str:
     valid = df.filter(pl.col("rule") != "excluded")
     excluded = df.filter(pl.col("rule") == "excluded").group_by("reason").len().sort("reason")
     reasons = ", ".join(f"{r} {n}" for r, n in excluded.iter_rows()) or "none"
-    if valid.height:
-        mean_cost = f"{float(valid['cost'].mean()):.3f}"  # type: ignore[arg-type]
-        good = f"{float(valid['good_read'].mean()):.1%}"  # type: ignore[arg-type]
-    else:
-        mean_cost = good = "n/a"
+    reads = valid["good_read"].drop_nulls() if valid.height else pl.Series([], dtype=pl.Boolean)
+    mean_cost = f"{float(valid['cost'].mean()):.3f}" if valid.height else "n/a"  # type: ignore[arg-type]
+    good = f"{float(reads.mean()):.1%}" if reads.len() else "n/a"  # type: ignore[arg-type]
+    no_pass = valid.height - reads.len()
     return (
         f"{df.height} shots: valid {valid.height}; excluded {reasons}; "
-        f"mean cost {mean_cost}; good_read {good}"
+        f"mean cost {mean_cost}; good_read {good} (no viable pass {no_pass})"
     )
 
 
@@ -397,6 +396,10 @@ def _fmt(value: float | None, spec: str = ".3f") -> str:
     return "-" if value is None else format(value, spec)
 
 
+def _read(good_read: bool | None) -> str:
+    return "- (no viable pass)" if good_read is None else str(good_read)
+
+
 @decisions.command("show")
 def decisions_show(
     shot_id: Annotated[str, typer.Argument(help="Shot id, e.g. shot-114243-1-0.")],
@@ -421,7 +424,7 @@ def decisions_show(
     )
     typer.echo(
         f"shot value {_fmt(d['shot_value'])}  best alt {_fmt(d['best_alt_value'])}  "
-        f"cost {_fmt(d['cost'])}  good_read {d['good_read']}  "
+        f"cost {_fmt(d['cost'])}  good_read {_read(d['good_read'])}  "
         f"confidence {_fmt(d['confidence'], '.1f')}"
     )
     typer.echo(

@@ -44,9 +44,11 @@ class Decision(_Frozen):
     """A valued shot decision: the shot against the best viable pass (ADR-0004).
 
     ``best_alt_value`` is the viability-adjusted value of the best pass;
-    ``cost = max(0, best_alt_value - shot_value)``. ``options`` lists the shot first, then the
-    passes by ``adjusted_value`` descending. ``confidence`` is the share of the ten players
-    detected (not predicted) in the decision frame.
+    ``cost = max(0, best_alt_value - shot_value)``. When no pass is viable (best adjusted
+    value 0.0) the best-alt fields and ``good_read`` are None and ``cost`` is 0.0.
+    ``options`` lists the shot first, then the passes by ``adjusted_value`` descending.
+    ``confidence`` is the share of the ten players detected (not predicted) in the decision
+    frame.
     """
 
     shot_id: str
@@ -61,6 +63,6 @@ class Decision(_Frozen):
     best_alt_type: AlternativeType | None
     best_alt_value: float | None
     cost: float
-    good_read: bool
+    good_read: bool | None
     confidence: float
     options: list[Option]

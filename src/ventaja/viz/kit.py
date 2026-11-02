@@ -114,6 +114,12 @@ def _players(settings: Settings) -> pl.DataFrame | None:
         return None
 
 
+def _read(good_read: bool | None) -> str:
+    if good_read is None:
+        return "— (ningún pase viable)"
+    return "sí" if good_read else "no"
+
+
 def _section(i: int, d: Decision, names: dict[int, str] | None) -> str:
     clock = "—" if d.shot_clock is None else f"{d.shot_clock:.1f} s"
     table = format_option_table(
@@ -125,7 +131,7 @@ def _section(i: int, d: Decision, names: dict[int, str] | None) -> str:
             "",
             f"regla {d.rule} · frame de decisión {d.decision_frame} · lanzamiento "
             f"{d.release_frame} · reloj {clock} · coste {d.cost:.3f} · "
-            f"good_read {'sí' if d.good_read else 'no'} · confidence {d.confidence:.1f}",
+            f"good_read {_read(d.good_read)} · confidence {d.confidence:.1f}",
             "",
             f"![{d.shot_id}]({d.shot_id}.gif)",
             "",

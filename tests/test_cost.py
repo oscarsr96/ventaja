@@ -99,6 +99,37 @@ def test_decide_cost_arithmetic(built_fixture: Settings, fixture_priors: Priors)
     assert d.good_read is (best.adjusted_value <= d.shot_value)
 
 
+def test_decide_without_viable_pass_names_no_alternative(
+    built_fixture: Settings, fixture_priors: Priors, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    a = Aligner(114243, built_fixture)
+    real = a.snapshot_for_shot(SHOT_ID, decision=True)
+    late = real.model_copy(update={"shot_clock": 1.5})  # under SHOT_CLOCK_MIN_PASS
+    monkeypatch.setattr(a, "snapshot_for_shot", lambda *_a, **_k: late)
+    model: ValueModel = _FixedModel()  # type: ignore[assignment]
+    d = decide(a, SHOT_ID, fixture_priors, model)
+    assert d is not None
+    assert all(o.viability == 0.0 for o in d.options[1:])
+    assert d.best_alt_player_id is None and d.best_alt_type is None
+    assert d.best_alt_value is None and d.cost == 0.0 and d.good_read is None
+    assert len(d.options) == 5
+
+
+def test_decision_summary_counts_good_read_over_non_null() -> None:
+    from ventaja.cli import _decision_summary
+
+    df = pl.DataFrame(
+        {
+            "rule": ["gather", "gather", "gather", "excluded"],
+            "reason": [None, None, None, "tip"],
+            "cost": [0.0, 0.2, 0.0, None],
+            "good_read": [True, False, None, None],
+        }
+    )
+    summary = _decision_summary(df)
+    assert "good_read 50.0%" in summary and "no viable pass 1" in summary
+
+
 def test_decide_excluded_returns_none(
     built_fixture: Settings,
     fixture_priors: Priors,
