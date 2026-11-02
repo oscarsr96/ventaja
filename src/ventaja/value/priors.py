@@ -45,6 +45,8 @@ class Priors:
         if row is None:
             return league
         mades, attempts = float(row[f"{key}_mades"]), float(row[f"{key}_attempts"])
+        if attempts == 0:
+            return league
         return (mades + K_SHRINK * league) / (attempts + K_SHRINK)
 
     def league_rate(self, zone: Zone) -> float:
