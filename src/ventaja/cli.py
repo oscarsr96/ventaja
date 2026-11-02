@@ -268,6 +268,13 @@ def validate_decisions(
     model_path: Annotated[
         Path | None, typer.Option("--model", help="Model JSON path (default: versioned model).")
     ] = None,
+    allow_fail: Annotated[
+        list[str] | None,
+        typer.Option(
+            "--allow-fail",
+            help="Check name whose failure is reported but does not fail (repeatable).",
+        ),
+    ] = None,
 ) -> None:
     """Run the face-validity checks over the decisions tables (default: all games)."""
     ids = game if game and not all_games else GAME_IDS
@@ -286,9 +293,15 @@ def validate_decisions(
     except VentajaError as exc:
         typer.echo(f"error: {exc}", err=True)
         raise typer.Exit(code=1) from exc
+    allowed = set(allow_fail or [])
+    unknown = allowed - {name for name, _, _ in results}
+    if unknown:
+        typer.echo(f"error: unknown check for --allow-fail: {', '.join(sorted(unknown))}", err=True)
+        raise typer.Exit(code=2)
     for name, ok, detail in results:
-        typer.echo(f"{'ok  ' if ok else 'FAIL'} {name} — {detail}")
-    if not all(ok for _, ok, _ in results):
+        status = "ok  " if ok else "FAIL (allowed)" if name in allowed else "FAIL"
+        typer.echo(f"{status} {name} — {detail}")
+    if not all(ok or name in allowed for name, ok, _ in results):
         raise typer.Exit(code=1)
 
 

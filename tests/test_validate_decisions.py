@@ -157,3 +157,29 @@ def test_validate_decisions_cli_prints_four_lines(
     assert len(lines) == 4, result.output
     assert all(ln.startswith(("ok  ", "FAIL ")) for ln in lines)
     assert result.exit_code == (1 if any(ln.startswith("FAIL") for ln in lines) else 0)
+
+
+def test_validate_decisions_allow_fail(
+    built_fixture: Settings,
+    trained_fixture_model: ValueModel,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _fixture_tables(built_fixture, trained_fixture_model)
+    model_path = tmp_path / "model.json"
+    trained_fixture_model.save(model_path)
+    monkeypatch.setenv("VENTAJA_DATA_DIR", str(built_fixture.data_dir))
+    monkeypatch.setenv("VENTAJA_BUILD_DIR", str(built_fixture.build_dir))
+    base = ["validate", "decisions", "--game", "114243", "--model", str(model_path)]
+    plain = runner.invoke(app, base)
+    failing = [ln.split()[1] for ln in plain.output.splitlines() if ln.startswith("FAIL")]
+    assert failing, plain.output  # the one-game fixture fails excluded_share_below_15pct
+    assert plain.exit_code == 1
+    allowed = runner.invoke(app, base + [a for name in failing for a in ("--allow-fail", name)])
+    assert allowed.exit_code == 0, allowed.output
+    for name in failing:
+        assert f"FAIL (allowed) {name}" in allowed.output
+    partial = runner.invoke(app, [*base, "--allow-fail", "prior_moves_value"])
+    assert partial.exit_code == 1
+    bogus = runner.invoke(app, [*base, "--allow-fail", "nope"])
+    assert bogus.exit_code == 2 and "unknown check" in bogus.output
