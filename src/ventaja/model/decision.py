@@ -74,15 +74,17 @@ Verdict = Literal["late", "during", "none", "no_window"]
 class CurveSummary(_Frozen):
     """The advantage window of a possession curve, relative to the shot taken.
 
-    A curve row is advantage when ``best_value >= shot_value + ADVANTAGE_TOLERANCE``;
-    consecutive advantage rows form runs and the summary keeps the last run that starts at or
-    before the decision frame. ``late``: that run ended before the decision frame
-    (``release_lag_seconds > 0``); ``during``: the decision frame lies inside it (lag 0.0);
-    ``none``: no advantage row at or before the decision frame (window fields None,
-    ``advantage_seconds`` 0.0). With fewer than ``CURVE_MIN_ROWS`` rows the verdict is
-    ``no_window`` and every optional field is None. ``peak_frame``/``peak_value`` describe the
-    whole curve; ``window_handler_id``/``window_peak_value`` the best row of the kept run.
-    ``span_start``/``span_end`` are the first and last sampled frames (None when empty).
+    A curve row is advantage when its best viable pass reaches
+    ``shot_value + ADVANTAGE_TOLERANCE`` (the handler's own shot never counts). A run is a
+    maximal sequence of consecutive advantage rows of one handler (``window_handler_id``); the
+    summary keeps the last run that starts at or before the decision frame. ``late``: that run
+    ended before the decision frame (``release_lag_seconds > 0``); ``during``: the decision
+    frame lies inside it (lag 0.0); ``none``: no advantage row at or before the decision
+    frame (window fields None, ``advantage_seconds`` 0.0). With fewer than ``CURVE_MIN_ROWS``
+    rows the verdict is ``no_window`` and every optional field is None. ``peak_frame`` and
+    ``peak_value`` describe the whole curve's ``best_value``; ``window_peak_value`` is the
+    run's highest ``best_pass_value``. ``span_start``/``span_end`` are the first and last
+    sampled frames (None when empty).
     """
 
     shot_id: str

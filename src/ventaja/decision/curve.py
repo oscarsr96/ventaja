@@ -34,6 +34,7 @@ CURVE_SCHEMA: dict[str, Any] = {
     "shot_clock": pl.Float64,
     "handler_shot_value": pl.Float64,  # the handler's hypothetical shot from where he stands
     "best_value": pl.Float64,  # max adjusted value of the five options
+    "best_pass_value": pl.Float64,  # max adjusted value of the passes; null when none is viable
     "best_player_id": pl.Int64,
     "best_option_type": pl.String,  # "shot" | "pass"
     "best_alt_type": pl.String,  # null when the best option is the shot
@@ -56,6 +57,7 @@ def _frame_row(
     rows = option_rows(snapshot, handler_id, priors)
     probas = model.predict_proba(rows).to_list()
     best: tuple[float, dict[str, Any]] | None = None
+    best_pass: float | None = None
     shot_value = 0.0
     n_viable = 0
     for row, proba in zip(rows.iter_rows(named=True), probas, strict=True):
@@ -64,8 +66,10 @@ def _frame_row(
             shot_value = adjusted = value
         else:
             via = viability(row["pass_distance"], row["lane_blocked"], snapshot.shot_clock)
-            n_viable += via > 0
             adjusted = value * via
+            if via > 0:
+                n_viable += 1
+                best_pass = adjusted if best_pass is None else max(best_pass, adjusted)
         if best is None or adjusted > best[0]:  # ties keep the earlier row (the shot first)
             best = (adjusted, row)
     assert best is not None  # option_rows always yields the shot row
@@ -76,6 +80,7 @@ def _frame_row(
         "shot_clock": snapshot.shot_clock,
         "handler_shot_value": shot_value,
         "best_value": best_value,
+        "best_pass_value": best_pass,
         "best_player_id": best_row["option_player_id"],
         "best_option_type": best_row["option_type"],
         "best_alt_type": None if is_shot else classify_alternative(best_row),
@@ -128,13 +133,13 @@ def possession_curve(
     return CurveResult(pl.DataFrame(rows[::-1], schema=CURVE_SCHEMA), skipped)
 
 
-def _runs(flags: list[bool]) -> list[tuple[int, int]]:
-    """``(first, last)`` row indices of each run of consecutive True flags."""
+def _runs(flags: list[bool], handlers: list[int]) -> list[tuple[int, int]]:
+    """``(first, last)`` row indices of each run of consecutive True flags of one handler."""
     runs: list[tuple[int, int]] = []
     for i, flag in enumerate(flags):
         if not flag:
             continue
-        if runs and runs[-1][1] == i - 1:
+        if runs and runs[-1][1] == i - 1 and handlers[i - 1] == handlers[i]:
             runs[-1] = (runs[-1][0], i)
         else:
             runs.append((i, i))
@@ -146,13 +151,16 @@ def summarize_curve(
 ) -> CurveSummary:
     """Advantage window of a curve (sorted by ``frame_idx``), relative to the shot taken.
 
-    A row is advantage when ``best_value >= shot_value + ADVANTAGE_TOLERANCE``. Runs are
-    consecutive curve rows (frames absent from the curve do not break a run); the last run
-    starting at or before ``decision_frame`` is kept. See ``CurveSummary`` for the verdicts.
+    Only passes count: a row is advantage when its ``best_pass_value`` (null: no viable pass)
+    reaches ``shot_value + ADVANTAGE_TOLERANCE``; the handler's own hypothetical shot never
+    does. A run is a maximal sequence of consecutive advantage rows with the same
+    ``handler_id`` (frames absent from the curve do not break it); the last run starting at
+    or before ``decision_frame`` is kept. See ``CurveSummary`` for the verdicts.
     """
     frames = [int(f) for f in curve["frame_idx"]]
     values = [float(v) for v in curve["best_value"]]
     handlers = [int(h) for h in curve["handler_id"]]
+    passes: list[float | None] = curve["best_pass_value"].to_list()
     out: dict[str, Any] = {
         "shot_id": shot_id,
         "game_id": game_id,
@@ -183,20 +191,22 @@ def summarize_curve(
     }
     runs = [
         r
-        for r in _runs([v >= shot_value + ADVANTAGE_TOLERANCE for v in values])
+        for r in _runs(
+            [p is not None and p >= shot_value + ADVANTAGE_TOLERANCE for p in passes], handlers
+        )
         if frames[r[0]] <= decision_frame
     ]
     if not runs:
         return CurveSummary(**out)
     lo, hi = runs[-1]
-    best = max(range(lo, hi + 1), key=lambda i: values[i])  # first maximum on ties
+    run_passes = [p for p in passes[lo : hi + 1] if p is not None]  # all set inside a run
     start, end = frames[lo], frames[hi]
     late = end < decision_frame
     out |= {
         "window_start": start,
         "window_end": end,
-        "window_handler_id": handlers[best],
-        "window_peak_value": values[best],
+        "window_handler_id": handlers[lo],
+        "window_peak_value": max(run_passes),
         "advantage_seconds": (end - start + CURVE_STEP_FRAMES) / FPS,
         "release_lag_seconds": (decision_frame - end) / FPS if late else 0.0,
         "verdict": "late" if late else "during",

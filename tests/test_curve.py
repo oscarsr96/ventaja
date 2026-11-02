@@ -4,8 +4,14 @@ import polars as pl
 import pytest
 
 from ventaja.config import Settings
+from ventaja.decision import curve as curve_module
 from ventaja.decision.align import Aligner
-from ventaja.decision.curve import headline, possession_curve, summarize_curve
+from ventaja.decision.curve import (
+    CURVE_SCHEMA,
+    headline,
+    possession_curve,
+    summarize_curve,
+)
 from ventaja.model.decision import CurveSummary
 from ventaja.value.model import ValueModel
 from ventaja.value.priors import Priors
@@ -46,6 +52,27 @@ def test_curve_rows_and_release_present(
     assert passes["best_alt_type"].null_count() == 0
     assert (shots["best_player_id"] == shots["handler_id"]).all()
     assert (shots["best_value"] == shots["handler_shot_value"]).all()
+    assert (passes["best_pass_value"] == passes["best_value"]).all()
+    assert (c["best_pass_value"] <= c["best_value"]).all()
+    assert c.filter(pl.col("n_viable") == 0)["best_pass_value"].null_count() == (
+        c.filter(pl.col("n_viable") == 0).height
+    )
+
+
+def test_curve_best_pass_value_null_without_viable_pass(
+    built_fixture: Settings,
+    fixture_priors: Priors,
+    trained_fixture_model: ValueModel,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(curve_module, "viability", lambda *args: 0.0)
+    a = Aligner(114243, built_fixture)
+    c = _curve(a, SHOT_ID, fixture_priors, trained_fixture_model)
+    assert c.height == 16 and (c["n_viable"] == 0).all()
+    assert c["best_pass_value"].null_count() == c.height
+    assert (c["best_option_type"] == "shot").all()
+    s = summarize_curve(c, shot_id=SHOT_ID, game_id=114243, decision_frame=3885, shot_value=0.0)
+    assert s.verdict == "none"  # the handler's own shot never counts as advantage
 
 
 def test_curve_skips_ball_in_flight(
@@ -124,29 +151,41 @@ def test_curve_skips_frames_with_handler_off_court(
     assert frames == [3820, 3825, 3830, *range(3855, 3896, 5)]
 
 
-def _summary_curve(values: list[float]) -> pl.DataFrame:
-    n = len(values)
+def _summary_curve(
+    passes: list[float | None],
+    handlers: list[int] | None = None,
+    best: list[float] | None = None,
+) -> pl.DataFrame:
+    n = len(passes)
     return pl.DataFrame(
         {
             "frame_idx": [100 + 5 * i for i in range(n)],
-            "handler_id": [7 if i % 2 else 8 for i in range(n)],
-            "best_value": values,
-        }
+            "handler_id": handlers or [8] * n,
+            "best_value": best or [p if p is not None else 0.5 for p in passes],
+            "best_pass_value": passes,
+        },
+        schema_overrides={"best_pass_value": pl.Float64},
     )
 
 
-def _summarize(values: list[float], decision_frame: int, shot_value: float = 0.8) -> CurveSummary:
+def _summarize(
+    passes: list[float | None],
+    decision_frame: int,
+    *,
+    handlers: list[int] | None = None,
+    best: list[float] | None = None,
+) -> CurveSummary:
     return summarize_curve(
-        _summary_curve(values),
+        _summary_curve(passes, handlers, best),
         shot_id="shot-1-1-0",
         game_id=1,
         decision_frame=decision_frame,
-        shot_value=shot_value,
+        shot_value=0.8,
     )
 
 
-# frames:    100  105  110  115  120  125   (advantage: best_value >= 0.8 + 0.10)
-LATE = [0.5, 1.2, 1.3, 1.0, 0.6, 0.7]
+# frames:    100  105  110  115  120  125   (advantage: best_pass_value >= 0.8 + 0.10)
+LATE: list[float | None] = [0.5, 1.2, 1.3, 1.0, 0.6, 0.7]
 
 
 def test_summary_late() -> None:
@@ -193,14 +232,37 @@ def test_summary_none_when_nothing_beats_the_shot() -> None:
     assert s.verdict == "none" and s.advantage_seconds == 0.0
 
 
+def test_summary_own_shot_is_not_advantage() -> None:
+    # the handler's own hypothetical shot (best_value 1.5) beats the threshold; no pass does
+    s = _summarize([0.6, 0.7, None, 0.6], 115, best=[1.5, 1.5, 1.5, 1.5])
+    assert s.verdict == "none" and s.window_start is None
+    assert (s.peak_frame, s.peak_value) == (100, 1.5)  # the peak still reads best_value
+
+
 def test_summary_last_run_before_decision_counts() -> None:
     # runs 100-105 and 115-120; a third run at 130 starts after the decision frame
     s = _summarize([1.5, 1.0, 0.5, 1.1, 0.95, 0.5, 2.0], 127)
     assert (s.window_start, s.window_end) == (115, 120)
-    assert (s.window_handler_id, s.window_peak_value) == (7, 1.1)
+    assert (s.window_handler_id, s.window_peak_value) == (8, 1.1)
     assert s.advantage_seconds == pytest.approx(0.4)
     assert s.verdict == "late" and s.release_lag_seconds == pytest.approx(0.28)
     assert (s.peak_frame, s.peak_value) == (130, 2.0)
+
+
+def test_summary_runs_split_on_handler_change() -> None:
+    s = _summarize([1.0, 1.4, 1.1, 1.2, 0.5], 112, handlers=[5, 5, 6, 6, 6])
+    assert (s.window_start, s.window_end) == (110, 115)  # handler 6's run, not 100-115
+    assert (s.window_handler_id, s.window_peak_value) == (6, 1.2)
+    assert s.verdict == "during" and s.advantage_seconds == pytest.approx(0.4)
+    t = _summarize([1.0, 1.4, 1.1, 1.2, 0.5], 107, handlers=[5, 5, 6, 6, 6])
+    assert (t.window_start, t.window_end, t.window_handler_id) == (100, 105, 5)
+    assert t.verdict == "late" and t.release_lag_seconds == pytest.approx(0.08)
+    assert t.window_peak_value == 1.4
+
+
+def test_summary_null_pass_value_breaks_run() -> None:
+    s = _summarize([1.0, None, 1.2, 0.5], 120)
+    assert (s.window_start, s.window_end) == (110, 110)
 
 
 def test_summary_single_row_run_and_peak_tie() -> None:
@@ -212,14 +274,14 @@ def test_summary_single_row_run_and_peak_tie() -> None:
     assert s.value_at_decision == 0.5  # 107 is closest to 105
 
 
-def test_summary_window_handler_tie_takes_earlier() -> None:
-    s = _summarize([1.2, 1.2, 0.5], 110)
-    assert s.window_handler_id == 8 and s.window_peak_value == 1.2
-
-
 def test_summary_value_at_decision_tie_takes_earlier() -> None:
     curve = pl.DataFrame(
-        {"frame_idx": [100, 110, 115], "handler_id": [1, 2, 3], "best_value": [0.3, 1.0, 0.9]}
+        {
+            "frame_idx": [100, 110, 115],
+            "handler_id": [1, 1, 1],
+            "best_value": [0.3, 1.0, 0.9],
+            "best_pass_value": [0.3, 1.0, 0.9],
+        }
     )
     s = summarize_curve(curve, shot_id="s", game_id=1, decision_frame=105, shot_value=0.5)
     assert s.value_at_decision == 0.3  # 105 is 5 from both 100 and 110
@@ -237,9 +299,7 @@ def test_summary_no_window() -> None:
 
 
 def test_summary_empty_curve() -> None:
-    empty = pl.DataFrame(
-        schema={"frame_idx": pl.Int64, "handler_id": pl.Int64, "best_value": pl.Float64}
-    )
+    empty = pl.DataFrame(schema={c: CURVE_SCHEMA[c] for c in CURVE_SCHEMA})
     s = summarize_curve(empty, shot_id="s", game_id=1, decision_frame=10, shot_value=0.5)
     assert s.verdict == "no_window" and s.n_rows == 0
     assert s.span_start is None and s.span_end is None
@@ -252,10 +312,11 @@ def test_summary_of_fixture_curve(
     c = _curve(a, SHOT_ID, fixture_priors, trained_fixture_model)
     s = summarize_curve(c, shot_id=SHOT_ID, game_id=114243, decision_frame=3885, shot_value=0.0)
     assert s.n_rows == 16 and (s.span_start, s.span_end) == (3820, 3895)
-    assert s.verdict == "during"  # every option beats a zero-value shot: one run, whole curve
-    assert (s.window_start, s.window_end) == (3820, 3895)
-    assert s.window_peak_value == s.peak_value
-    assert s.window_handler_id == c.filter(pl.col("frame_idx") == s.peak_frame)["handler_id"][0]
+    # every viable pass beats a zero-value shot; runs split at 35028 -> 28247 -> 35028
+    assert s.verdict == "during" and s.window_handler_id == 35028
+    assert (s.window_start, s.window_end) == (3855, 3895)
+    run = c.filter(pl.col("frame_idx") >= 3855)
+    assert s.window_peak_value == run["best_pass_value"].max()
 
 
 def _make(verdict: str, advantage: float, lag: float | None, n_rows: int = 6) -> CurveSummary:
