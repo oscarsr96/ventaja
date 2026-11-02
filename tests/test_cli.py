@@ -104,3 +104,8 @@ def test_data_build_writes_meta_and_aggregates(
     assert fixture_settings.meta_parquet("players").exists()
     assert fixture_settings.aggregates_parquet("shots").exists()
     assert "skip aggregate drives" in result.output
+
+
+def test_model_report_missing_exits_1(tmp_path: Path) -> None:
+    result = CliRunner().invoke(app, ["model", "report", "--model", str(tmp_path / "x.json")])
+    assert result.exit_code == 1 and "ventaja model train" in result.output
