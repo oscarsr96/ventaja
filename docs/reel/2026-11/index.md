@@ -124,7 +124,7 @@ Buenas lecturas (el tiro valía al menos lo que el mejor pase) ordenadas por mar
 
 ## Momentos perdidos
 
-Veredicto `late` de la curva: el tirador tuvo una ventaja de al menos 0.4 s, se le cerró y siguió con el balón hasta tirar (`held_to_decision`). Ordenados por el retraso entre el fin de la ventaja y el frame de decisión; el clip empieza antes para que se vea la ventana.
+Veredicto `late` de la curva: el tirador tuvo una ventaja de al menos 0,4 s, se le cerró y siguió con el balón hasta tirar (`held_to_decision`). Ordenados por el retraso entre el fin de la ventaja y el frame de decisión; el clip empieza antes para que se vea la ventana.
 
 | # | Partido | Jugador | Cuarto y reloj | Tiro | Mejor alternativa | Retraso | Mejor pase en la ventana | Titular |
 |---:|---|---|---|---|---|---|---|---|

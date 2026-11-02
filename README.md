@@ -47,7 +47,7 @@ Layer 2 replays the layer-1 valuation along the possession: every 0.2 s from the
 
 ![Advantage curve of shot-179612-1-7](docs/figures/curve-shot-179612-1-7.png)
 
-*Provisional figure 2: a 1.6 s window (orange) where a pass was worth 1.40 points against a 1.07 shot, closed 2.2 s before the decision.*
+*Provisional figure 2: a 1.6 s window (orange) where a pass was worth 1.41 points against a 1.07 shot, closed 2.2 s before the decision.*
 
 Over the 1,351 valued shots, 46% are `during`, 36% `late`, 16% `none` and 2% have too short a curve to judge. 217 late windows belong to the shooter, and in 208 of them he kept the ball while the window closed. When a late window belonged to an earlier ball handler, the headline names that player.
 

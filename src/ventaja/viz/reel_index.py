@@ -30,7 +30,8 @@ _INTRO = {
     ),
     "late": (
         "Veredicto `late` de la curva: el tirador tuvo una ventaja de al menos "
-        f"{MIN_RANK_ADVANTAGE:.1f} s, se le cerró y siguió con el balón hasta tirar "
+        f"{format(MIN_RANK_ADVANTAGE, '.1f').replace('.', ',')} s, se le cerró y siguió "
+        "con el balón hasta tirar "
         "(`held_to_decision`). Ordenados por el retraso entre el fin de la ventaja y el frame "
         "de decisión; el clip empieza antes para que se vea la ventana."
     ),
