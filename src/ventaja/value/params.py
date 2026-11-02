@@ -99,3 +99,9 @@ PROFILE_ZONE_SHIFT = 0.15  # change of zone mix against the season that is worth
 PROFILE_SEASON_DELTA = 0.10
 # readable shots a clock bucket needs before the clock rule compares its excess over the league
 CLOCK_MIN_SHOTS = 2
+
+# Whiteboard (layer 4): limits of the local board.
+BOARD_MAX_MOVES = 10  # players one evaluation request may move
+# ft/s given to a dragged player: placed, not running, so the pass projection stays put
+BOARD_MOVED_VELOCITY = 0.0
+BOARD_PORT = 8765  # default port of the local board server
