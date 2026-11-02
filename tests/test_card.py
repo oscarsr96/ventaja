@@ -154,7 +154,12 @@ def test_player_show_cli(cli_env: Settings) -> None:
     assert "Grant Golden" in result.output
     assert card.phrase_es is not None and card.phrase_es in result.output
     assert "Por reloj" in result.output and "24-14" in result.output and "6-0" in result.output
-    assert "Por alternativa" in result.output and "Temporada" in result.output
+    assert "Por alternativa (decisiones con coste > 0,10)" in result.output
+    assert "Temporada" in result.output
+    n_unknown = card.n_readable - sum(n for n, _ in card.clock.values())
+    word = "decisión" if n_unknown == 1 else "decisiones"
+    assert f"reloj desconocido: {n_unknown} {word}" in result.output
+    assert "reloj < 2 s" in result.output
     no_pass = card.n_shots - card.n_readable
     assert "descontado por la viabilidad del pase" in result.output
     assert f"sin pase viable: {no_pass}" in result.output
@@ -162,6 +167,7 @@ def test_player_show_cli(cli_env: Settings) -> None:
     assert en.exit_code == 0 and card.phrase_en is not None and card.phrase_en in en.output
     assert "discounted by pass viability" in en.output
     assert f"no viable pass: {no_pass}" in en.output
+    assert f"unknown clock: {n_unknown}" in en.output and "shot clock under 2 s" in en.output
     missing = runner.invoke(app, ["player", "show", "zzz"])
     assert missing.exit_code == 1
     ambiguous = runner.invoke(app, ["player", "show", "a"])
@@ -190,6 +196,8 @@ def test_player_team_cli(cli_env: Settings) -> None:
     result = runner.invoke(app, ["player", "team", str(team["team_id"])])
     assert result.exit_code == 0, result.output
     assert team["team"] in result.output
+    n_unknown = team["n_readable"] - sum(team[f"clock_{b}_n"] for b in ("24-14", "14-6", "6-0"))
+    assert f"reloj desconocido: {n_unknown} " in result.output
     by_name = runner.invoke(app, ["player", "team", team["team"].lower()[:5]])
     assert by_name.exit_code == 0, by_name.output
     assert runner.invoke(app, ["player", "team", "zzz"]).exit_code == 1

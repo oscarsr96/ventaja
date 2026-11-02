@@ -148,7 +148,7 @@ def test_clock_rule_picks_worst_bucket() -> None:
     )
     # A bucket with a single readable shot is ignored.
     row["n_6-0"] = 1
-    assert "su coste es más alto con reloj medio" in profile_phrase(row, LEAGUE)
+    assert "su coste es más alto con el reloj medio" in profile_phrase(row, LEAGUE)
     # Unknown or too-close costs: no rule.
     row["cost_14-6"] = None
     assert "coste" not in profile_phrase(row, LEAGUE)
@@ -180,10 +180,10 @@ def test_season_sentence_zone_shift() -> None:
     row = row_with(season=True, shift_corner_3=0.2, shift_mid_range=0.16)
     text = profile_phrase(row, LEAGUE)
     assert text.count(".") == 2
-    assert "En estos partidos tira más desde esquina que en su temporada." in text
+    assert "En estos partidos tira más desde la esquina que en su temporada." in text
     row = row_with(season=True, season_cns_share=0.56, season_contested_share=0.76)
     text = profile_phrase(row, LEAGUE)
-    assert "Es sobre todo un tirador tras recepción" in text
+    assert "La mayoría de sus tiros de temporada llegan tras recepción" in text
     assert "la mayoría de sus tiros de temporada son con mano encima" in text
 
 
@@ -213,13 +213,29 @@ def test_english_variant() -> None:
     text = profile_phrase(row, LEAGUE, lang="en")
     assert text.startswith("Picks the shot well; the option he most often leaves is the rim cut")
     assert "tends to shoot once the advantage has faded" in text
-    assert "In these games he shoots more from above-the-break three than over his season" in text
-    assert "he is mostly a catch-and-shoot player" in text
+    assert "In these games he shoots more from above the break than over his season" in text
+    assert "most of his season shots come off the catch" in text
     small = profile_phrase(row_with(n_shots=1, n_readable=1), LEAGUE, lang="en")
     assert small.startswith("With 1 valued shot the sample is small")
     assert profile_phrase(row_with(n_shots=4, n_readable=4), LEAGUE, lang="en").startswith(
         "With 4 valued shots"
     )
+
+
+def test_zone_and_bucket_names_carry_their_article() -> None:
+    """R9: the article belongs to the name, so every phrase reads "desde el triple frontal"."""
+    for zone, phrase in (
+        ("above_break_3", "desde el triple frontal"),
+        ("restricted_area", "desde la zona restringida"),
+        ("mid_range", "desde media distancia"),
+    ):
+        row = row_with(season=True, **{f"shift_{zone}": 0.3})
+        assert f"En estos partidos tira más {phrase} que en su temporada." in profile_phrase(
+            row, LEAGUE
+        )
+    row = row_with(**{"cost_24-14": 0.1, "cost_14-6": 0.4, "cost_6-0": 0.1})
+    assert "su coste es más alto con el reloj medio" in profile_phrase(row, LEAGUE)
+    assert "his cost is highest with mid clock" in profile_phrase(row, LEAGUE, lang="en")
 
 
 def test_name_dicts_cover_keys() -> None:
@@ -274,11 +290,11 @@ def test_season_clauses_relative_to_league() -> None:
     assert profile_phrase(below, LEAGUE) == "Decide en la media de la liga."
     edge = row_with(season=True, season_cns_share=0.56, season_contested_share=0.5)
     text = profile_phrase(edge, LEAGUE)
-    assert "tirador tras recepción" in text and "mano encima" not in text
+    assert "llegan tras recepción" in text and "mano encima" not in text
     high = row_with(season=True, season_cns_share=0.99, season_contested_share=0.99)
     for league in ({}, {**LEAGUE, "season_cns_share": None, "season_contested_share": None}):
         text = profile_phrase(high, league)
-        assert "tirador tras recepción" not in text and "mano encima" not in text
+        assert "tras recepción" not in text and "mano encima" not in text
 
 
 def test_exact_two_fragment_sentence() -> None:

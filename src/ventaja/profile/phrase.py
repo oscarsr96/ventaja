@@ -47,21 +47,23 @@ ALT_NAMES_EN = {
     "post": "the post",
     "other": "another",
 }
+# Zone and bucket names as they read inside a phrase: the article belongs to the name
+# ("desde el triple frontal", "desde media distancia", "con el reloj medio").
 ZONE_NAMES_ES = {
-    "restricted_area": "zona restringida",
-    "paint_non_ra": "pintura",
+    "restricted_area": "la zona restringida",
+    "paint_non_ra": "la pintura",
     "mid_range": "media distancia",
-    "corner_3": "esquina",
-    "above_break_3": "triple frontal",
+    "corner_3": "la esquina",
+    "above_break_3": "el triple frontal",
 }
 ZONE_NAMES_EN = {
-    "restricted_area": "restricted area",
-    "paint_non_ra": "paint",
+    "restricted_area": "the restricted area",
+    "paint_non_ra": "the paint",
     "mid_range": "mid-range",
-    "corner_3": "corner",
-    "above_break_3": "above-the-break three",
+    "corner_3": "the corner",
+    "above_break_3": "above the break",
 }
-BUCKET_NAMES_ES = {"24-14": "mucho reloj", "14-6": "reloj medio", "6-0": "el reloj agotándose"}
+BUCKET_NAMES_ES = {"24-14": "mucho reloj", "14-6": "el reloj medio", "6-0": "el reloj agotándose"}
 BUCKET_NAMES_EN = {
     "24-14": "plenty of clock",
     "14-6": "mid clock",
@@ -81,7 +83,7 @@ _TEXT: dict[Lang, dict[str, str]] = {
         "late": "tiende a tirar cuando la ventaja ya se ha esfumado",
         "clock": "su coste es más alto con {bucket}",
         "shift": "en estos partidos tira más desde {zone} que en su temporada",
-        "cns": "es sobre todo un tirador tras recepción",
+        "cns": "la mayoría de sus tiros de temporada llegan tras recepción",
         "contested": "la mayoría de sus tiros de temporada son con mano encima",
         "none": "no hay datos suficientes para describir su perfil",
     },
@@ -97,7 +99,7 @@ _TEXT: dict[Lang, dict[str, str]] = {
         "late": "tends to shoot once the advantage has faded",
         "clock": "his cost is highest with {bucket}",
         "shift": "in these games he shoots more from {zone} than over his season",
-        "cns": "he is mostly a catch-and-shoot player",
+        "cns": "most of his season shots come off the catch",
         "contested": "most of his season shots are contested",
         "none": "there is not enough data to describe the profile",
     },

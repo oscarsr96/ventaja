@@ -1,10 +1,11 @@
 """Plain-text rendering of player and team cards for ``ventaja player`` (labels in Spanish)."""
 
 from ventaja.profile.card import PlayerCard, TeamCard
-from ventaja.profile.phrase import ZONE_NAMES_ES, Lang
+from ventaja.profile.phrase import Lang
 from ventaja.profile.season import MAIN_ZONES
+from ventaja.value.params import ADVANTAGE_TOLERANCE, SHOT_CLOCK_MIN_PASS
 
-__all__ = ["ALT_LABELS_ES", "render_card", "render_team"]
+__all__ = ["ALT_LABELS_ES", "ZONE_LABELS_ES", "render_card", "render_team"]
 
 ALT_LABELS_ES = {
     "rim_cut": "corte al aro",
@@ -12,6 +13,14 @@ ALT_LABELS_ES = {
     "extra_pass": "pase extra",
     "post": "poste",
     "other": "otra",
+}
+# Zone labels of the season table (the phrase's ``ZONE_NAMES_ES`` carry an article).
+ZONE_LABELS_ES = {
+    "restricted_area": "zona restringida",
+    "paint_non_ra": "pintura",
+    "mid_range": "media distancia",
+    "corner_3": "esquina",
+    "above_break_3": "triple frontal",
 }
 
 
@@ -31,17 +40,25 @@ def _games(games: list[int]) -> str:
     return f"{_plural(len(games), 'partido', 'partidos')} ({', '.join(map(str, games))})"
 
 
+def _es_num(value: float) -> str:
+    """A threshold as the Spanish labels write it: shortest form, decimal comma."""
+    return format(value, "g").replace(".", ",")
+
+
 _VIABILITY = {
     "es": (
         "  valor de las alternativas descontado por la viabilidad del pase "
-        "(carril, distancia, reloj < 2 s)",
+        f"(carril, distancia, reloj < {_es_num(SHOT_CLOCK_MIN_PASS)} s)",
         "  sin pase viable: {n} {word} (coste 0, fuera de las medias)",
     ),
     "en": (
-        "  alternative values discounted by pass viability (lane, distance, shot clock under 2 s)",
+        "  alternative values discounted by pass viability "
+        f"(lane, distance, shot clock under {SHOT_CLOCK_MIN_PASS:g} s)",
         "  no viable pass: {n} {word} (cost 0, left out of the means)",
     ),
 }
+_UNKNOWN_CLOCK = {"es": "  reloj desconocido: {n} {word}", "en": "  unknown clock: {n} {word}"}
+_ALT_TITLE = f"Por alternativa (decisiones con coste > {ADVANTAGE_TOLERANCE:.2f})".replace(".", ",")
 
 _DECISION_WORD = {"es": ("decisión", "decisiones"), "en": ("decision", "decisions")}
 
@@ -52,9 +69,11 @@ def _decision_blocks(
     """Value, clock, alternatives and lost moments: what player and team cards share.
 
     The value block always says that alternatives are discounted by viability and how many
-    decisions had no viable pass (spec section 9).
+    decisions had no viable pass (spec section 9). The clock table ends with the readable
+    decisions that fall in no bucket because their shot clock is unknown.
     """
     viability, no_pass = _VIABILITY[lang]
+    words = _DECISION_WORD[lang]
     n_no_pass = card.n_shots - card.n_readable
     lines = [
         "",
@@ -66,14 +85,16 @@ def _decision_blocks(
         f"  buena lectura {_pct(card.good_read_share)} de {card.n_readable} legibles  "
         f"[liga {_pct(league.good_read_share)}]",
         viability,
-        no_pass.format(n=n_no_pass, word=_DECISION_WORD[lang][n_no_pass != 1]),
+        no_pass.format(n=n_no_pass, word=words[n_no_pass != 1]),
         "",
         "Por reloj",
         f"  {'tramo':<7}{'n':>4}{'coste':>8}{'liga':>8}",
     ]
     for bucket, (n, cost) in card.clock.items():
         lines.append(f"  {bucket:<7}{n:>4}{_num(cost):>8}{_num(league.clock[bucket][1]):>8}")
-    lines += ["", "Por alternativa", f"  {'alternativa':<16}{'n':>4}{'coste':>8}"]
+    n_unknown = card.n_readable - sum(n for n, _ in card.clock.values())
+    lines.append(_UNKNOWN_CLOCK[lang].format(n=n_unknown, word=words[n_unknown != 1]))
+    lines += ["", _ALT_TITLE, f"  {'alternativa':<16}{'n':>4}{'coste':>8}"]
     for alt, (n, cost) in card.alternatives.items():
         lines.append(f"  {ALT_LABELS_ES[alt]:<16}{n:>4}{_num(cost):>8}")
     lines += [
@@ -110,7 +131,7 @@ def _season_block(card: PlayerCard, league: PlayerCard) -> list[str]:
         shift = card.zone_shift.get(f"shift_{z}")
         shift = None if shift is None else round(shift, 2) + 0.0  # no "-0.00"
         lines.append(
-            f"  {ZONE_NAMES_ES[z]:<18}{_pct(tracked):>10}"
+            f"  {ZONE_LABELS_ES[z]:<18}{_pct(tracked):>10}"
             f"{_pct(s[f'season_zone_share_{z}']):>11}{_num(shift, '+.2f'):>8}"
         )
     lines.append(
