@@ -124,7 +124,7 @@ SESSION_RECEIVERS = {
     "shot-191313-2-46": (59105, False),  # Kurucs: mid-lane defender, open receiver, set passer
     "shot-191313-4-127": (58771, False),  # Andric
     "shot-191313-4-137": (59206, False),  # Gonzalez
-    "shot-114086-4-102": (59135, True),  # Spagnolo: receiver is covered
+    "shot-114086-4-102": (59135, True),  # Spagnolo: open (11.6 ft) but the passer (Omoruyi) drives
 }
 
 

@@ -118,12 +118,12 @@ def test_lane_mid_lane_defender_open_receiver_set_passer_not_blocked() -> None:
 
 
 def test_lane_mid_lane_defender_receiver_not_open_blocked() -> None:
-    """Spagnolo: the receiver has a defender at 4 ft."""
+    """Mid-lane defender and a covered receiver (defender at 4 ft)."""
     assert _lane_case((-20.0, 1.0), receiver_def=(-30.0, 4.0)) is True
 
 
-def test_lane_mid_lane_defender_passer_driving_blocked() -> None:
-    """Passer driving to the hoop (at x=-40.7) at 10 ft/s."""
+def test_lane_mid_lane_defender_passer_driving_spagnolo_omoruyi_blocked() -> None:
+    """Spagnolo / Omoruyi: open receiver, passer driving to the hoop (at x=-40.7) at 10 ft/s."""
     assert _lane_case((-20.0, 1.0), passer_vx=-10.0) is True
     assert _lane_case((-20.0, 1.0), passer_vx=10.0) is False
 

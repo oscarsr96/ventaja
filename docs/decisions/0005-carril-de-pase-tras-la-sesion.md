@@ -12,9 +12,16 @@ Los tres `mal` de las opciones son pases que el modelo penalizaba por `lane_bloc
 
 En los tres, el defensor estaba en el MEDIO de un pase de 20-25 ft (a 8-9 ft de ambos extremos), el receptor estaba libre y el pasador estaba parado: un pasador parado lo supera con un pase por alto. La distancia del defensor más cercano al receptor era 17,3 / 10,5 / 7,1 ft y el `moving_to_hoop` del pasador 3,6 / −1,1 / 1,3 ft/s.
 
-El contraejemplo es `shot-114086-4-102` (Spagnolo): el entrenador escribe «el pase fuera está tapado por línea de pase» y valora las opciones como `ok`. Allí el receptor tenía un defensor a 11,6 ft, pero el pasador se movía hacia el aro a 13,5 ft/s: con el pasador en carrera no hay tiempo de superar al defensor del carril.
+El contraejemplo es `shot-114086-4-102` (Spagnolo): el entrenador escribe «el pase fuera está tapado por línea de pase» y valora las opciones como `ok`. Allí el receptor tenía un defensor a 11,6 ft, pero el pasador (Omoruyi) se movía hacia el aro a 13,5 ft/s (el `moving_to_hoop` de la fila del tiro de `shot-114086-4-102` en `114086.options.parquet`, 13,54; el de la fila del receptor es el del receptor): con el pasador en carrera no hay tiempo de superar al defensor del carril.
 
-Sensibilidad medida en la sesión: con la regla vigente `lane_blocked` se activa en el 56 % de los pases; si solo contaran los extremos del segmento, en el 25 %. (Sobre las 5 404 filas de pase de `artifacts/decisions/` la regla vigente da un 59,0 %.)
+Sensibilidad de `lane_blocked` (porcentaje de pases bloqueados):
+
+| Regla | Pases bloqueados | Base |
+|---|---|---|
+| Vigente (ADR-0004) | 59,0 % | las 5 404 filas de pase de `artifacts/decisions/` |
+| Vigente, medición de la sesión | 56 % | solo pases con algún defensor entre los extremos del segmento |
+| Solo extremos | 25 % | medición de la sesión |
+| Regla B (esta decisión) | 47,4 % | las 5 404 filas de pase tras reconstruir |
 
 ## Decisión
 
