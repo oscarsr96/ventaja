@@ -25,6 +25,8 @@ from ventaja.validate import score as score_module
 from ventaja.value import model as model_module
 from ventaja.value.features import shot_rows
 from ventaja.value.priors import Priors
+from ventaja.viz import kit as kit_module
+from ventaja.viz.text import format_option_table
 
 app = typer.Typer(name="ventaja", no_args_is_help=True)
 data = typer.Typer(help="Download, inspect and build SkillCorner data.", no_args_is_help=True)
@@ -35,6 +37,8 @@ model = typer.Typer(help="Train and inspect the value model.", no_args_is_help=T
 app.add_typer(model, name="model")
 decisions = typer.Typer(help="Build and inspect shot decision costs.", no_args_is_help=True)
 app.add_typer(decisions, name="decisions")
+review = typer.Typer(help="Prepare the live review of decisions.", no_args_is_help=True)
+app.add_typer(review, name="review")
 
 
 def _version_callback(value: bool) -> None:
@@ -421,18 +425,27 @@ def decisions_show(
         f"confidence {_fmt(d['confidence'], '.1f')}"
     )
     typer.echo(
-        f"  {'player_id':>9} {'type':5} {'zone':16} {'P':>5} {'value':>6} "
-        f"{'viab':>5} {'adj':>6} alternative"
-    )
-    for o in opts.iter_rows(named=True):
-        if o["option_type"] == "shot":
-            mark = "*"
-        elif o["player_id"] == d["best_alt_player_id"]:
-            mark = ">"
-        else:
-            mark = " "
-        typer.echo(
-            f"{mark} {o['player_id']:>9} {o['option_type']:5} {o['zone']:16} "
-            f"{o['proba']:>5.2f} {o['value']:>6.3f} {o['viability']:>5.2f} "
-            f"{o['adjusted_value']:>6.3f} {o['alternative_type'] or '-'}"
+        format_option_table(
+            opts, shooter_id=d["shooter_id"], best_alt_player_id=d["best_alt_player_id"]
         )
+    )
+
+
+@review.command("sample")
+def review_sample(
+    out: Annotated[Path, typer.Option("--out", help="Output directory of the kit.")],
+    game: GameOption = None,
+    all_games: AllOption = False,
+    n: Annotated[int, typer.Option("--n", help="Number of shots to sample.")] = 20,
+    seed: Annotated[int, typer.Option("--seed", help="Random seed of the sample.")] = 7,
+) -> None:
+    """Sample shots stratified by decision rule, render one GIF each and write review.md."""
+    ids = GAME_IDS if all_games or not game else game
+    try:
+        path = kit_module.review_kit(Settings.from_env(), list(ids), n, seed, out)
+    except VentajaError as exc:
+        typer.echo(f"error: {exc}", err=True)
+        raise typer.Exit(code=1) from exc
+    count = sum(line.startswith("## ") for line in path.read_text().splitlines())
+    typer.echo(f"review -> {path}")
+    typer.echo(f"{count} {'GIF' if count == 1 else 'GIFs'} in {path.parent}")
