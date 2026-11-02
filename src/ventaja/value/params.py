@@ -57,3 +57,7 @@ CUT_SPEED = 4.0  # ft/s toward the hoop that makes a paint option a "cut"
 CURVE_STEP_FRAMES = 5  # frames between curve samples (25 fps / 5 = 5 Hz), counted back from release
 ADVANTAGE_TOLERANCE = 0.10  # pts, a row is advantage when its best pass beats the shot by this
 CURVE_MIN_ROWS = 3  # curves with fewer rows get no advantage window (verdict ``no_window``)
+
+# Possession clip (layer 2): the court and the advantage curve animated together.
+CLIP_BEFORE_S = 3.0  # s shown before the decision frame (as the layer-1 review GIFs)
+CLIP_AFTER_S = 1.0  # s shown after the release, so the ball's flight is visible

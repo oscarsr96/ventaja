@@ -19,6 +19,7 @@ Python >=3.12, managed with `uv`. Layout `src/ventaja/`. polars, duckdb, pydanti
 - `uv run ventaja model train --all` (or `--game N`; `--out PATH`, `--figure PATH`), `uv run ventaja model report`
 - `uv run ventaja decisions build --all --out artifacts/decisions` (default `--out`: the build's `decisions/`), `uv run ventaja decisions show shot-114243-1-0`
 - `uv run ventaja curves build --all --out artifacts/curves` (default `--out`: the build's `curves/`), `uv run ventaja curves show shot-114243-1-0`
+- `uv run ventaja curves plot shot-114243-1-0 --out curve.png`, `uv run ventaja clip shot-114243-1-0 --out clip.gif` (`--fps`, `--before`, `--after`; the clip needs the game built with `data build`)
 - `uv run ventaja review sample --all --n 20 --seed 7 --out docs/review/2026-11-sample`
 - Real-data tests: `VENTAJA_REALDATA_DIR=<raw dir> VENTAJA_REALDATA_BUILD_DIR=<scratch build dir> uv run pytest -m realdata`
 

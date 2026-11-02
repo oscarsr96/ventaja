@@ -8,7 +8,7 @@ import polars as pl
 
 from ventaja.config import Settings
 from ventaja.decision.align import Aligner
-from ventaja.errors import NoTrackingError, VentajaError
+from ventaja.errors import DataNotFoundError, NoTrackingError, VentajaError
 from ventaja.model.decision import AlternativeType, Decision, Option
 from ventaja.model.snapshot import Snapshot
 from ventaja.value.features import OPTION_FEATURES, option_rows, shot_kwargs
@@ -28,6 +28,7 @@ __all__ = [
     "build_decisions",
     "classify_alternative",
     "decide",
+    "decision_from_tables",
     "viability",
 ]
 
@@ -204,6 +205,37 @@ def _option_rows(d: Decision) -> list[dict[str, Any]]:
         }
         for o in d.options
     ]
+
+
+_OPTION_FIELDS = tuple(f for f in Option.model_fields if f != "features")
+_DECISION_FIELDS = tuple(f for f in Decision.model_fields if f != "options")
+
+
+def decision_from_tables(shot_id: str, decisions: pl.DataFrame, options: pl.DataFrame) -> Decision:
+    """Rebuild a shot's ``Decision`` from the ``decisions`` and ``decision_options`` tables.
+
+    The inverse of what ``build_decisions`` writes: the options keep the table order (the
+    shot first, then the passes by ``adjusted_value`` descending) and ``features`` holds the
+    option's non-null ``OPTION_FEATURES`` columns. Raises DataNotFoundError if the shot is
+    not in ``decisions`` and VentajaError, with its reason, if the shot is excluded.
+    """
+    hit = decisions.filter(pl.col("shot_id") == shot_id)
+    if hit.height == 0:
+        raise DataNotFoundError(f"shot {shot_id} not found in the decisions table")
+    row = hit.row(0, named=True)
+    if row["rule"] == "excluded":
+        raise VentajaError(f"shot {shot_id} is excluded: {row['reason']}")
+    rows = options.filter(pl.col("shot_id") == shot_id).iter_rows(named=True)
+    return Decision(
+        **{f: row[f] for f in _DECISION_FIELDS},
+        options=[
+            Option(
+                **{f: o[f] for f in _OPTION_FIELDS},
+                features={f: float(o[f]) for f in OPTION_FEATURES if o[f] is not None},
+            )
+            for o in rows
+        ],
+    )
 
 
 def build_decisions(

@@ -23,14 +23,16 @@ from ventaja.data.load import (
     load_decisions,
 )
 from ventaja.decision.align import Aligner
-from ventaja.decision.cost import build_decisions
+from ventaja.decision.cost import build_decisions, decision_from_tables
 from ventaja.decision.curve import build_curves
 from ventaja.errors import DataNotFoundError, VentajaError
 from ventaja.validate import decisions as decisions_checks
 from ventaja.validate import score as score_module
 from ventaja.value import model as model_module
 from ventaja.value.features import shot_rows
+from ventaja.value.params import CLIP_AFTER_S, CLIP_BEFORE_S
 from ventaja.value.priors import Priors
+from ventaja.viz import clip as clip_module
 from ventaja.viz import kit as kit_module
 from ventaja.viz.text import format_option_table
 
@@ -575,6 +577,72 @@ def curves_show(
             f"{r['handler_shot_value']:>18.3f} {r['best_value']:>10.3f} "
             f"{_fmt(r['best_pass_value']):>15}  {_best(r)}"
         )
+
+
+@curves.command("plot")
+def curves_plot(
+    shot_id: Annotated[str, typer.Argument(help="Shot id, e.g. shot-114243-1-0.")],
+    out: Annotated[Path, typer.Option("--out", help="Output image file (e.g. curve.png).")],
+) -> None:
+    """Save a shot's advantage curve as an image, titled with its headline."""
+    try:
+        settings = Settings.from_env()
+        game_id = _game_of_shot(shot_id)
+        decision = decision_from_tables(
+            shot_id, load_decisions(game_id, settings), load_decision_options(game_id, settings)
+        )
+        curve, summary = clip_module.curve_of_shot(
+            shot_id, load_curves(game_id, settings), load_curve_summaries(game_id, settings)
+        )
+        path = clip_module.curve_figure(curve, summary, decision.decision_frame, out)
+    except VentajaError as exc:
+        typer.echo(f"error: {exc}", err=True)
+        raise typer.Exit(code=1) from exc
+    typer.echo(f"curve -> {path}")
+
+
+@app.command("clip")
+def clip(
+    shot_id: Annotated[str, typer.Argument(help="Shot id, e.g. shot-114243-1-0.")],
+    out: Annotated[Path, typer.Option("--out", help="Output GIF file.")],
+    fps: Annotated[int, typer.Option("--fps", help="Frames per second of the GIF.")] = 12,
+    before: Annotated[
+        float, typer.Option("--before", help="Seconds shown before the decision frame.")
+    ] = CLIP_BEFORE_S,
+    after: Annotated[
+        float, typer.Option("--after", help="Seconds shown after the release.")
+    ] = CLIP_AFTER_S,
+) -> None:
+    """Animate a shot's possession (court) with its advantage curve underneath, as a GIF.
+
+    Decisions and curves come from the build or the packaged artifacts; the court needs the
+    game's built events and tracking (`ventaja data build --game N`).
+    """
+    try:
+        settings = Settings.from_env()
+        game_id = _game_of_shot(shot_id)
+        decision = decision_from_tables(
+            shot_id, load_decisions(game_id, settings), load_decision_options(game_id, settings)
+        )
+        curve, summary = clip_module.curve_of_shot(
+            shot_id, load_curves(game_id, settings), load_curve_summaries(game_id, settings)
+        )
+        labels = kit_module.jersey_labels(kit_module.players_table(settings), game_id)
+        path = clip_module.render_clip(
+            Aligner(game_id, settings),
+            decision,
+            curve,
+            summary,
+            out,
+            before_s=before,
+            after_s=after,
+            fps=fps,
+            labels=labels,
+        )
+    except VentajaError as exc:
+        typer.echo(f"error: {exc}", err=True)
+        raise typer.Exit(code=1) from exc
+    typer.echo(f"clip -> {path}")
 
 
 @review.command("sample")
