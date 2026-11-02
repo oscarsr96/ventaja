@@ -97,3 +97,5 @@ PROFILE_ALT_MIN = 3  # decisions needed to name the alternative the player most 
 PROFILE_ZONE_SHIFT = 0.15  # change of zone mix against the season that is worth mentioning
 # share of catch-and-shoot / contested season attempts over the league that is worth mentioning
 PROFILE_SEASON_DELTA = 0.10
+# readable shots a clock bucket needs before the clock rule compares its excess over the league
+CLOCK_MIN_SHOTS = 2

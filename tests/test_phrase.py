@@ -36,6 +36,9 @@ LEAGUE: dict[str, Any] = {
     "late_held_share": 0.15,
     "season_cns_share": 0.45,
     "season_contested_share": 0.65,
+    "cost_24-14": 0.2,
+    "cost_14-6": 0.2,
+    "cost_6-0": 0.2,
 }
 
 
@@ -97,13 +100,16 @@ def test_small_sample_singular_and_clock_rule() -> None:
     assert profile_phrase(walker, LEAGUE, lang="en").startswith(
         "With 1 readable shot of 2 valued the sample is small"
     )
-    row = row_with(n_readable=6, **{"n_24-14": 2, "n_14-6": 2, "n_6-0": 0, "cost_6-0": 0.9})
+    # R6: below PROFILE_MIN_SHOTS readable shots the phrase is only the opening sentence
+    row = row_with(n_readable=6, n_shots=6, **{"n_24-14": 3, "n_14-6": 3, "cost_6-0": 0.9})
     row["cost_24-14"] = 0.1
-    row["cost_14-6"] = 0.4
-    text = profile_phrase(row, LEAGUE)
-    assert "mucho reloj" not in text
-    assert "reloj medio" in text
-    assert "elige bien" not in text and "decide en la media" not in text
+    row["cost_14-6"] = 0.6
+    for lang in ("es", "en"):
+        text = profile_phrase(row, LEAGUE, lang=lang)  # type: ignore[arg-type]
+        assert "coste" not in text and "cost" not in text
+        assert "elige bien" not in text and "decide en la media" not in text
+    assert profile_phrase(row, LEAGUE) == "Con 6 tiros valorados la muestra es pequeña."
+    assert profile_phrase(row, LEAGUE, lang="en") == "With 6 valued shots the sample is small."
 
 
 def test_good_reader() -> None:
@@ -136,14 +142,37 @@ def test_late_tendency() -> None:
 
 def test_clock_rule_picks_worst_bucket() -> None:
     row = row_with(**{"cost_24-14": 0.1, "cost_14-6": 0.2, "cost_6-0": 0.4})
-    assert "su coste sube con el reloj agotándose" in profile_phrase(row, LEAGUE)
+    assert "su coste es más alto con el reloj agotándose" in profile_phrase(row, LEAGUE)
+    assert "his cost is highest with the clock running out" in profile_phrase(
+        row, LEAGUE, lang="en"
+    )
     # A bucket with a single readable shot is ignored.
     row["n_6-0"] = 1
-    assert "su coste sube con reloj medio" in profile_phrase(row, LEAGUE)
+    assert "su coste es más alto con reloj medio" in profile_phrase(row, LEAGUE)
     # Unknown or too-close costs: no rule.
     row["cost_14-6"] = None
     assert "coste" not in profile_phrase(row, LEAGUE)
     row = row_with(**{"cost_6-0": 0.23})
+    assert "coste" not in profile_phrase(row, LEAGUE)
+
+
+def test_clock_rule_is_league_relative() -> None:
+    league = {**LEAGUE, "cost_24-14": 0.16, "cost_14-6": 0.2, "cost_6-0": 0.24}
+    # Buckets that rise exactly like the league's: equal excess, no clause.
+    same = row_with(**{"cost_24-14": 0.26, "cost_14-6": 0.3, "cost_6-0": 0.34})
+    assert "coste" not in profile_phrase(same, league)
+    # A 6-0 excess 0.10 above the 24-14 excess fires and names the 6-0 bucket.
+    worse = row_with(**{"cost_24-14": 0.26, "cost_14-6": 0.3, "cost_6-0": 0.44})
+    assert "su coste es más alto con el reloj agotándose" in profile_phrase(worse, league)
+    # Against the league a flat player is most costly with plenty of clock.
+    flat = row_with(**{"cost_24-14": 0.3, "cost_14-6": 0.3, "cost_6-0": 0.3})
+    assert "su coste es más alto con mucho reloj" in profile_phrase(flat, league)
+    # Without the league bucket costs the rule cannot compare and does not fire.
+    assert "coste" not in profile_phrase(worse, {"mean_cost": 0.2, "good_read_share": 0.4})
+
+
+def test_clock_rule_needs_two_buckets_with_min_shots() -> None:
+    row = row_with(**{"cost_24-14": 0.1, "cost_6-0": 0.5, "n_14-6": 1, "n_6-0": 1})
     assert "coste" not in profile_phrase(row, LEAGUE)
 
 

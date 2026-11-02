@@ -11,6 +11,7 @@ from typing import Any, Literal
 from ventaja.value.params import (
     ALT_TYPES,
     CLOCK_BUCKETS,
+    CLOCK_MIN_SHOTS,
     PROFILE_ALT_MIN,
     PROFILE_COST_DELTA,
     PROFILE_LATE_SHARE,
@@ -78,7 +79,7 @@ _TEXT: dict[Lang, dict[str, str]] = {
         "average": "decide en la media de la liga",
         "alt": "la opción que más deja pasar es {alt}",
         "late": "tiende a tirar cuando la ventaja ya se ha esfumado",
-        "clock": "su coste sube con {bucket}",
+        "clock": "su coste es más alto con {bucket}",
         "shift": "en estos partidos tira más desde {zone} que en su temporada",
         "cns": "es sobre todo un tirador tras recepción",
         "contested": "la mayoría de sus tiros de temporada son con mano encima",
@@ -94,15 +95,13 @@ _TEXT: dict[Lang, dict[str, str]] = {
         "average": "decides at the league average",
         "alt": "the option he most often leaves is {alt}",
         "late": "tends to shoot once the advantage has faded",
-        "clock": "his cost rises with {bucket}",
+        "clock": "his cost is highest with {bucket}",
         "shift": "in these games he shoots more from {zone} than over his season",
         "cns": "he is mostly a catch-and-shoot player",
         "contested": "most of his season shots are contested",
         "none": "there is not enough data to describe the profile",
     },
 }
-
-_CLOCK_MIN_SHOTS = 2  # readable shots a clock bucket needs to be compared
 
 
 def _num(source: Mapping[str, Any], key: str) -> float | None:
@@ -148,17 +147,26 @@ def _late(row: Mapping[str, Any], t: dict[str, str]) -> str | None:
     return t["late"] if share is not None and share >= PROFILE_LATE_SHARE else None
 
 
-def _clock(row: Mapping[str, Any], names: dict[str, str], t: dict[str, str]) -> str | None:
-    """Rule 5: the clock bucket where the cost is highest, if it clearly exceeds the lowest."""
-    costs: list[tuple[str, float]] = []
+def _clock(
+    row: Mapping[str, Any], league: Mapping[str, Any], names: dict[str, str], t: dict[str, str]
+) -> str | None:
+    """Rule 5: the clock bucket where the player's cost most exceeds the league's.
+
+    Each bucket with at least ``CLOCK_MIN_SHOTS`` readable shots (and a known league cost) gives
+    an excess ``cost_b - league cost_b``; with two or more, the bucket with the largest excess is
+    named when it exceeds the smallest excess by ``PROFILE_COST_DELTA`` or more. A player whose
+    cost rises with the clock exactly as the league's does not fire.
+    """
+    excess: list[tuple[str, float]] = []
     for label, _, _ in CLOCK_BUCKETS:
         n, cost = _num(row, f"n_{label}"), _num(row, f"cost_{label}")
-        if n is not None and cost is not None and n >= _CLOCK_MIN_SHOTS:
-            costs.append((label, cost))
-    if len(costs) < 2:
+        reference = _num(league, f"cost_{label}")
+        if n is not None and cost is not None and reference is not None and n >= CLOCK_MIN_SHOTS:
+            excess.append((label, cost - reference))
+    if len(excess) < 2:
         return None
-    worst = max(costs, key=lambda item: item[1])
-    if worst[1] - min(c for _, c in costs) < PROFILE_COST_DELTA:
+    worst = max(excess, key=lambda item: item[1])
+    if worst[1] - min(e for _, e in excess) < PROFILE_COST_DELTA:
         return None
     return t["clock"].format(bucket=names[worst[0]])
 
@@ -195,9 +203,9 @@ def profile_phrase(row: Mapping[str, Any], league: Mapping[str, Any], *, lang: L
 
     The first sentence joins, with "; ", the fragments of the reading (rule 2), the ignored
     alternative (3), the lost moments (4) and the clock (5). With fewer than
-    ``PROFILE_MIN_SHOTS`` readable shots it opens with the small-sample note, which counts the
-    valued shots (``n_shots``), and adds only the clock rule. The second sentence (rule 6)
-    exists only with a season block.
+    ``PROFILE_MIN_SHOTS`` readable shots the phrase is only the small-sample note, which counts
+    the valued shots (``n_shots``): no tendency is stated. The second sentence (rule 6) exists
+    only with a season block.
     """
     t = _TEXT[lang]
     alts = ALT_NAMES_ES if lang == "es" else ALT_NAMES_EN
@@ -205,7 +213,6 @@ def profile_phrase(row: Mapping[str, Any], league: Mapping[str, Any], *, lang: L
     buckets = BUCKET_NAMES_ES if lang == "es" else BUCKET_NAMES_EN
 
     n_readable = int(_num(row, "n_readable") or 0)
-    clock = _clock(row, buckets, t)
     if n_readable < PROFILE_MIN_SHOTS:
         n_shots = int(_num(row, "n_shots") or n_readable)
         if n_readable < n_shots:  # the sentence counts what it gates on, and the valued shots
@@ -213,7 +220,7 @@ def profile_phrase(row: Mapping[str, Any], league: Mapping[str, Any], *, lang: L
             opening = t[key].format(r=n_readable, n=n_shots)
         else:
             opening = (t["small_one"] if n_shots == 1 else t["small_many"]).format(n=n_shots)
-        return _sentence([opening, *([clock] if clock else [])])
+        return _sentence([opening])
 
     first = [
         f
@@ -221,7 +228,7 @@ def profile_phrase(row: Mapping[str, Any], league: Mapping[str, Any], *, lang: L
             _reading(row, league, t),
             _alternative(row, alts, t),
             _late(row, t),
-            clock,
+            _clock(row, league, buckets, t),
         )
         if f
     ]

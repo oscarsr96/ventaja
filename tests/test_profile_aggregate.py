@@ -7,6 +7,7 @@ from helpers import make_decisions, make_summaries
 from ventaja.config import Settings
 from ventaja.data.load import load_curve_summaries, load_decisions
 from ventaja.profile.aggregate import league_row, player_table, team_table
+from ventaja.value.params import LATE_MIN_CLOCK
 
 GAME_ID = 114243
 
@@ -201,3 +202,31 @@ def test_league_row_on_empty_frame_keeps_all_keys() -> None:
     row = league_row(make_decisions([]), make_summaries([]))
     assert row["n_shots"] == 0 and row["mean_cost"] is None and row["n_6-0"] == 0
     assert "ignored_alt" in row
+
+
+def test_lost_moments_skip_clock_under_late_min_clock() -> None:
+    """R7: as in the reel, a late-held row with a known clock under LATE_MIN_CLOCK is not a lost
+    moment; an unknown clock still counts. ``n_with_summary`` counts every curve."""
+    decisions = make_decisions(
+        [
+            {"shot_id": "low", "shot_clock": 1.0, "cost": 0.3},
+            {"shot_id": "unk", "shot_clock": None, "cost": 0.3},
+            {"shot_id": "edge", "shot_clock": LATE_MIN_CLOCK, "cost": 0.3},
+            {"shot_id": "dur", "shot_clock": 10.0, "cost": 0.3},
+        ]
+    )
+    late = {"verdict": "late", "held_to_decision": True}
+    summaries = make_summaries(
+        [
+            {"shot_id": "low", **late, "release_lag_seconds": 3.0},
+            {"shot_id": "unk", **late, "release_lag_seconds": 1.0},
+            {"shot_id": "edge", **late, "release_lag_seconds": 2.0},
+            {"shot_id": "dur", "verdict": "during"},
+        ]
+    )
+    row = _row(player_table(decisions, summaries), 10)
+    assert row["n_with_summary"] == 4
+    assert row["n_late_held"] == 2
+    assert row["late_held_share"] == pytest.approx(0.5)
+    assert row["mean_lag_held"] == pytest.approx(1.5)  # the 3.0 s lag at clock 1.0 is left out
+    assert league_row(decisions, summaries)["n_late_held"] == 2

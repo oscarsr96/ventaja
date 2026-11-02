@@ -3,8 +3,10 @@
 Shares and means are ``None`` when their denominator is empty; nothing is filled with 0.
 Every cost mean (``mean_cost`` and the shot-clock bucket means) and the value means run over the
 readable decisions only (``good_read`` not null); an unreadable decision has cost 0 by
-construction. ``n_{bucket}`` counts the readable decisions of the bucket. The face-validity check
-``cost_falls_with_clock`` keeps its own all-valid-rows convention.
+construction. ``n_{bucket}`` counts the readable decisions of the bucket. Lost moments
+(``n_late_held``, ``late_held_share``, ``mean_lag_held``) skip decisions with a known shot clock
+under ``LATE_MIN_CLOCK``, as the reel does; ``n_with_summary`` counts every curve. The
+face-validity check ``cost_falls_with_clock`` keeps its own all-valid-rows convention.
 """
 
 from typing import Any
@@ -15,6 +17,7 @@ from ventaja.value.params import (
     ADVANTAGE_TOLERANCE,
     ALT_TYPES,
     CLOCK_BUCKETS,
+    LATE_MIN_CLOCK,
     MIN_RANK_CONFIDENCE,
 )
 
@@ -48,7 +51,10 @@ def _joined(decisions: pl.DataFrame, summaries: pl.DataFrame) -> pl.DataFrame:
 
 def _metrics(joined: pl.DataFrame, by: list[str]) -> pl.DataFrame:
     readable = pl.col("good_read").is_not_null()
-    late_held = (pl.col("verdict") == "late") & pl.col("held_to_decision")
+    # A lost moment counts only with a known clock of at least LATE_MIN_CLOCK (or an unknown
+    # one), the reel's floor: below it the shot clock, not the shooter, closed the window.
+    clock_ok = pl.col("shot_clock").is_null() | (pl.col("shot_clock") >= LATE_MIN_CLOCK)
+    late_held = (pl.col("verdict") == "late") & pl.col("held_to_decision") & clock_ok
     aggs: list[pl.Expr] = [
         pl.len().alias("n_shots"),
         readable.sum().alias("n_readable"),
