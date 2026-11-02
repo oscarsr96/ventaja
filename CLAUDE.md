@@ -22,6 +22,7 @@ Python >=3.12, managed with `uv`. Layout `src/ventaja/`. polars, duckdb, pydanti
 - `uv run ventaja curves plot shot-114243-1-0 --out curve.png`, `uv run ventaja clip shot-114243-1-0 --out clip.gif` (`--fps`, `--before`, `--after`; the clip needs the game built with `data build`)
 - `uv run ventaja review sample --all --n 20 --seed 7 --out docs/review/2026-11-sample`
 - `uv run ventaja reel rankings --all --n 10`, `uv run ventaja reel build --all --n 10 --out docs/reel/2026-11` (`--fps`; GIFs are gitignored, `index.md` is committed)
+- `uv run ventaja player build --out artifacts` (default `--out`: the build's `players/`), `uv run ventaja player show "Spissu"` (`--lang en`), `uv run ventaja player rank --min-shots 8`, `uv run ventaja player team 1338`
 - Real-data tests: `VENTAJA_REALDATA_DIR=<raw dir> VENTAJA_REALDATA_BUILD_DIR=<scratch build dir> uv run pytest -m realdata`
 
 ## Conventions
@@ -33,7 +34,7 @@ Python >=3.12, managed with `uv`. Layout `src/ventaja/`. polars, duckdb, pydanti
 - All geometry is in offense orientation; `left_hoop` is read only in `decision/align.py` (ADR-0001).
 - Every constant of layers 1 and 2 (curve, clip, rankings, reel) lives in `src/ventaja/value/params.py` and changes only via an ADR.
 - A raw shot clock of 0.0 is the clock switched off: `Aligner` reads it as `None` (unknown), unless a countdown reached it within the previous `SHOT_CLOCK_EXPIRY_LOOKBACK` = 25 frames, in which case it has expired and stays 0.0 (ADR-0007).
-- `models/` and `artifacts/` are derived, versioned artifacts: regenerate them in this order with `ventaja model train --all`, `ventaja decisions build --all --out artifacts/decisions` and `ventaja curves build --all --out artifacts/curves` (`artifacts/curves/` depends on both), never edit them by hand.
+- `models/` and `artifacts/` are derived, versioned artifacts: regenerate them in this order with `ventaja model train --all`, `ventaja decisions build --all --out artifacts/decisions`, `ventaja curves build --all --out artifacts/curves` (`artifacts/curves/` depends on both) and `ventaja player build --out artifacts` (`artifacts/players.parquet` and `teams.parquet` depend on the decisions, the curves, `meta/` and the aggregates), never edit them by hand.
 
 ## References
 

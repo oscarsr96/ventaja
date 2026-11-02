@@ -86,9 +86,8 @@ ALT_TYPES = ("rim_cut", "open_corner", "extra_pass", "post", "other")
 
 # Player card profile phrase (layer 3): thresholds of the rules that write the phrase.
 PROFILE_MIN_SHOTS = 8  # readable shots needed to state a tendency
-PROFILE_COST_DELTA = (
-    0.05  # pts of mean cost over (or under) the league for "leaves options" / clock rule
-)
+# pts of mean cost over (or under) the league for "leaves options" / clock rule
+PROFILE_COST_DELTA = 0.05
 PROFILE_READ_DELTA = 0.08  # share of good reads over the league for "picks the shot well"
 PROFILE_LATE_SHARE = 0.25  # share of lost moments held to the decision, among shots with a curve
 PROFILE_ALT_MIN = 3  # decisions needed to name the alternative the player most often leaves

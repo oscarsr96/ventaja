@@ -8,7 +8,14 @@ import polars as pl
 
 from ventaja.value.zones import ZONES, Zone
 
-__all__ = ["MAIN_ZONES", "season_profile", "tracked_zone_mix", "zone_shift"]
+__all__ = [
+    "MAIN_ZONES",
+    "SEASON_INT_KEYS",
+    "SEASON_KEYS",
+    "season_profile",
+    "tracked_zone_mix",
+    "zone_shift",
+]
 
 MAIN_ZONES: tuple[Zone, ...] = ZONES[:5]
 
@@ -29,6 +36,9 @@ _DRIVE_KEYS = (
     "season_drive_pullup_share",
     "season_drive_rim_share",
 )
+# Every key of ``season_profile``, in order, and the ones that hold counts (ints).
+SEASON_KEYS: tuple[str, ...] = _SHOT_KEYS + _DRIVE_KEYS
+SEASON_INT_KEYS = frozenset({"season_games", "season_attempts", "season_drives"})
 _SUMMED = (
     "games_played",
     "attempts",
@@ -80,7 +90,7 @@ def season_profile(
     A player absent from ``shots_agg`` gives all-``None``; absent from ``drives_agg`` (or
     ``drives_agg is None``) gives a null drives block.
     """
-    out: dict[str, float | int | None] = dict.fromkeys(_SHOT_KEYS + _DRIVE_KEYS)
+    out: dict[str, float | int | None] = dict.fromkeys(SEASON_KEYS)
     s = _player_sums(shots_agg, player_id, _SUMMED)
     if not s:
         return out

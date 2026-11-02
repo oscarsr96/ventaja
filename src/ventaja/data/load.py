@@ -193,18 +193,30 @@ def load_aggregates(name: str, settings: Settings) -> pl.DataFrame:
     return pl.read_parquet(path)
 
 
-ArtifactKind = Literal["decisions", "curves"]
+ArtifactKind = Literal["decisions", "curves", "players"]
 
-# Secondary files that sit next to each kind's ``{game_id}.parquet`` main tables.
-_SECONDARY_SUFFIX: dict[ArtifactKind, str] = {
+# The per-game kinds keep ``{game_id}.parquet`` main tables with a secondary file next to each.
+# ``players`` is not per game: its main table is ``players.parquet``, with ``teams.parquet`` next
+# to it, and its packaged copy sits directly in ``artifacts/`` (not in ``artifacts/players/``).
+_SECONDARY_SUFFIX: dict[str, str] = {
     "decisions": ".options.parquet",
     "curves": ".summary.parquet",
 }
-_BUILD_HINT: dict[ArtifactKind, str] = {"decisions": "decisions build", "curves": "curves build"}
+_BUILD_HINT: dict[ArtifactKind, str] = {
+    "decisions": "decisions build",
+    "curves": "curves build",
+    "players": "player build",
+}
+PLAYERS_FILE = "players.parquet"
+TEAMS_FILE = "teams.parquet"
 
 
 def _main_tables(root: Path, kind: ArtifactKind) -> list[Path]:
-    """``{game_id}.parquet`` main tables of a directory (secondary files excluded)."""
+    """Main tables of a directory: ``{game_id}.parquet`` (secondary files excluded), or
+    ``players.parquet`` for ``players``."""
+    if kind == "players":
+        path = root / PLAYERS_FILE
+        return [path] if path.exists() else []
     suffix = _SECONDARY_SUFFIX[kind]
     return [p for p in sorted(root.glob("[0-9]*.parquet")) if not p.name.endswith(suffix)]
 
@@ -212,11 +224,13 @@ def _main_tables(root: Path, kind: ArtifactKind) -> list[Path]:
 def artifact_dir(kind: ArtifactKind, settings: Settings) -> Path:
     """The one directory every reader of ``kind`` uses, chosen once and never mixed.
 
-    The build's ``{kind}/`` if it holds any ``{game_id}.parquet`` main table, else the
-    packaged ``artifacts/{kind}/``.
+    The build's ``{kind}/`` if it holds any main table, else the packaged ``artifacts/{kind}/``
+    (``artifacts/`` itself for ``players``).
     """
     built = settings.build_dir / kind
-    return built if _main_tables(built, kind) else ARTIFACTS_DIR / kind
+    if _main_tables(built, kind):
+        return built
+    return ARTIFACTS_DIR if kind == "players" else ARTIFACTS_DIR / kind
 
 
 def _artifact_files(kind: ArtifactKind, settings: Settings) -> tuple[list[Path], list[Path]]:
@@ -225,13 +239,13 @@ def _artifact_files(kind: ArtifactKind, settings: Settings) -> tuple[list[Path],
 
 
 def _artifact_table(
-    game_id: int, kind: ArtifactKind, name: str, settings: Settings
+    game_id: int | None, kind: ArtifactKind, name: str, settings: Settings
 ) -> pl.DataFrame:
     path = artifact_dir(kind, settings) / name
     if not path.exists():
-        raise DataNotFoundError(
-            f"{path} not found; run `ventaja {_BUILD_HINT[kind]} --game {game_id}` first"
-        )
+        games = "--all" if game_id is None else f"--game {game_id}"
+        hint = _BUILD_HINT[kind] if kind == "players" else f"{_BUILD_HINT[kind]} {games}"
+        raise DataNotFoundError(f"{path} not found; run `ventaja {hint}` first")
     return pl.read_parquet(path)
 
 
@@ -274,3 +288,13 @@ def load_curves(game_id: int, settings: Settings) -> pl.DataFrame:
 def load_curve_summaries(game_id: int, settings: Settings) -> pl.DataFrame:
     """The one-row-per-shot curve summaries of a game (no per-file fallback)."""
     return _artifact_table(game_id, "curves", f"{game_id}.summary.parquet", settings)
+
+
+def load_players_cards(settings: Settings) -> pl.DataFrame:
+    """The flat player cards (one row per shooter plus ``LIGA``), from ``artifact_dir``."""
+    return _artifact_table(None, "players", PLAYERS_FILE, settings)
+
+
+def load_teams_cards(settings: Settings) -> pl.DataFrame:
+    """The flat team cards, from ``artifact_dir("players")``."""
+    return _artifact_table(None, "players", TEAMS_FILE, settings)

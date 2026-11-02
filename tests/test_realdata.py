@@ -211,3 +211,34 @@ def test_curve_summaries_cover_every_valued_shot(real_settings: Settings) -> Non
     assert other_handler <= 1, (
         f"{other_handler} decision rows have a handler other than the shooter"
     )
+
+
+def test_player_cards_cover_every_shooter(real_settings: Settings, tmp_path: Path) -> None:
+    """ADR-0008: 190 shooters plus the LIGA row, 1,351 valued shots, means in range, and the
+    league mean cost equal to the mean cost over the readable decisions."""
+    from ventaja.data.load import load_decisions
+    from ventaja.profile.card import LEAGUE_ID, PLAYERS_SCHEMA, build_players
+
+    players_path, teams_path = build_players(real_settings, out_dir=tmp_path)
+    players = pl.read_parquet(players_path)
+    assert dict(players.schema) == PLAYERS_SCHEMA
+    shooters = players.filter(pl.col("player_id") != LEAGUE_ID)
+    league = players.filter(pl.col("player_id") == LEAGUE_ID).row(0, named=True)
+    assert shooters.height == 190
+    assert shooters["n_shots"].sum() == 1351 == league["n_shots"]
+    assert shooters["name"].null_count() == 0 and shooters["team"].null_count() == 0
+    for col in ("good_read_share", "late_held_share", "during_share"):
+        values = players[col].drop_nulls()
+        assert ((values >= 0) & (values <= 1)).all(), col
+    for col in ("mean_cost", "mean_shot_value", "mean_best_alt_value"):
+        values = players[col].drop_nulls()
+        assert ((values >= 0) & (values <= 3)).all(), col
+    shares = [c for c in players.columns if "_share" in c and c.startswith(("season_", "tracked_"))]
+    for col in shares:
+        values = players[col].drop_nulls()
+        assert ((values >= 0) & (values <= 1)).all(), col
+    decisions = pl.concat([load_decisions(g, real_settings) for g in GAME_IDS])
+    readable = decisions.filter((pl.col("rule") != "excluded") & pl.col("good_read").is_not_null())
+    assert league["mean_cost"] == pytest.approx(float(readable["cost"].mean()), abs=1e-6)  # type: ignore[arg-type]
+    teams = pl.read_parquet(teams_path)
+    assert teams.height == 17 and teams["n_shots"].sum() == 1351

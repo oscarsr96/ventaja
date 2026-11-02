@@ -12,6 +12,7 @@ EXPECTED_COMMANDS = {
     "curves": {"build", "show", "plot"},
     "review": {"sample"},
     "reel": {"rankings", "build"},
+    "player": {"build", "show", "rank", "team"},
 }
 EXPECTED_TOP_LEVEL = {"sql", "snapshot", "clip"}
 
