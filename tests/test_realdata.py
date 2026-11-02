@@ -112,8 +112,8 @@ def test_decision_face_validity_checks(real_settings: Settings) -> None:
     ok, detail = result["cost_falls_with_clock"]
     if not ok:
         pytest.xfail(
-            "known: mean cost by clock is 0.161 (24-14), 0.204 (14-6), 0.146 (6-0), "
-            f"not monotone (see ADR-0004, ADR-0005); measured now: {detail}"
+            "known: mean cost by clock is 0.164 (24-14), 0.205 (14-6), 0.184 (6-0), "
+            f"not monotone (see ADR-0004, ADR-0005, ADR-0007); measured now: {detail}"
         )
     pytest.fail(f"cost_falls_with_clock now passes ({detail}); drop the xfail", pytrace=False)
 
@@ -141,3 +141,73 @@ def test_lane_rule_after_the_live_session(real_settings: Settings) -> None:
         row = passes.filter((pl.col("shot_id") == shot_id) & (pl.col("player_id") == player_id))
         assert row.height == 1, shot_id
         assert row["lane_blocked"][0] is expected, shot_id
+
+
+def test_curve_summaries_cover_every_valued_shot(real_settings: Settings) -> None:
+    """ADR-0006: one summary per valued shot, and the curve agrees with layer 1 where it meets it.
+
+    The decision frame is always on the curve (R16). Where its handler is the shooter, the four
+    passes are the same as in ``decide``, for every rule; the shot row is not (``decide`` takes
+    zone/points from the event, the curve from the position), so only the passes are compared:
+    the row's ``best_pass_value`` (null when no pass is viable) equals the best adjusted pass
+    of the decisions options. Rows where the touches give the ball to a teammate of the
+    shooter at the decision frame value that teammate's passes and are counted apart.
+    Measured after the fix wave: 1,349 curves have the decision row (the other 2 have no
+    handler there); 1,348 of them have the shooter as handler and all 1,348 agree exactly
+    (gather 700, last_dribble 381, touch_start 267); the other one is ``shot-114169-3-104``.
+    """
+    from typing import get_args
+
+    from ventaja.data.load import (
+        load_curve_summaries,
+        load_curves,
+        load_decision_options,
+        load_decisions,
+    )
+    from ventaja.model.decision import Verdict
+
+    total, at_frame, compared, agree, other_handler, total_held = 0, 0, 0, 0, 0, 0
+    for game_id in GAME_IDS:
+        valued = load_decisions(game_id, real_settings).filter(pl.col("rule") != "excluded")
+        summaries = load_curve_summaries(game_id, real_settings)
+        assert sorted(summaries["shot_id"]) == sorted(valued["shot_id"]), game_id
+        assert (summaries["advantage_seconds"] >= 0).all(), game_id
+        assert set(summaries["verdict"]) <= set(get_args(Verdict)), game_id
+        total += summaries.height
+        held = summaries.filter(pl.col("held_to_decision")).join(
+            valued.select("shot_id", "shooter_id"), on="shot_id"
+        )
+        assert (held["verdict"] == "late").all(), game_id
+        assert (held["window_handler_id"] == held["shooter_id"]).all(), game_id
+        total_held += held.height
+        best_pass = (
+            load_decision_options(game_id, real_settings)
+            .filter(pl.col("option_type") == "pass")
+            .group_by("shot_id")
+            .agg(max_pass=pl.col("adjusted_value").max())
+        )
+        at_decision = (
+            load_curves(game_id, real_settings)
+            .join(
+                valued.select("shot_id", "decision_frame", "shooter_id"),
+                left_on=["shot_id", "frame_idx"],
+                right_on=["shot_id", "decision_frame"],
+            )
+            .join(best_pass, on="shot_id")
+        )
+        at_frame += at_decision.height
+        other_handler += at_decision.filter(pl.col("handler_id") != pl.col("shooter_id")).height
+        at_decision = at_decision.filter(pl.col("handler_id") == pl.col("shooter_id"))
+        compared += at_decision.height
+        gap = (at_decision["best_pass_value"].fill_null(0.0) - at_decision["max_pass"]).abs()
+        agree += int((gap <= 1e-6).sum())
+    assert total == 1351
+    # ADR-0006 amendment held_to_decision. A range, not a pin, so a data-rule change that
+    # moves a few verdicts does not break the check.
+    assert 100 <= total_held <= 400, f"{total_held} late curves held to the decision"
+    assert at_frame >= 1340, f"only {at_frame} curves have a row at the decision frame"
+    assert compared >= 1340, f"only {compared} decision rows were compared"
+    assert agree == compared, f"{agree} of {compared} decision rows agree with layer 1"
+    assert other_handler <= 1, (
+        f"{other_handler} decision rows have a handler other than the shooter"
+    )

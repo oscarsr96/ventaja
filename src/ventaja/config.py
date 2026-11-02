@@ -69,3 +69,11 @@ class Settings(BaseModel):
     def decisions_options_parquet(self, game_id: int) -> Path:
         """Path of the built per-option parquet of a game's decisions."""
         return self.build_dir / "decisions" / f"{game_id}.options.parquet"
+
+    def curves_parquet(self, game_id: int) -> Path:
+        """Path of the built per-frame advantage curves of a game's shots."""
+        return self.build_dir / "curves" / f"{game_id}.parquet"
+
+    def curve_summaries_parquet(self, game_id: int) -> Path:
+        """Path of the built one-row-per-shot curve summaries of a game."""
+        return self.build_dir / "curves" / f"{game_id}.summary.parquet"

@@ -41,6 +41,13 @@ LANE_END_ZONE = 6.0  # ft, a lane defender this close to either end of the segme
 LANE_OPEN_RECEIVER = 6.0  # ft, receiver's nearest defender at least this far: open for a lob pass
 LANE_DRIVING_SPEED = 4.0  # ft/s, passer moving to the hoop at least this fast: no time to lob
 BETWEEN_WIDTH = 3.0  # ft, a defender this close to the player->hoop segment is between them
+# A raw shot clock of exactly this value is the clock switched off (end of period, or not
+# running), not a clock at zero: the snapshot reads it as unknown, ``None``, unless it was
+# reached by a countdown within ``SHOT_CLOCK_EXPIRY_LOOKBACK`` frames (ADR-0007).
+SHOT_CLOCK_OFF = 0.0
+# Frames (1 s) searched back from a 0.0 reading: a 0.0 reached by a countdown within them is
+# a clock that has just run out (expired, stays 0.0), not a clock switched off (ADR-0007).
+SHOT_CLOCK_EXPIRY_LOOKBACK = 25
 # Shot clock below this many seconds sets the ``shot_clock_low`` flag.
 SHOT_CLOCK_LOW = 4.0
 
@@ -52,3 +59,20 @@ PASS_DISTANCE_HARD = 60.0  # ft, viability falls linearly to zero at this length
 # Classification of the ignored alternative.
 OPEN_DEF_DIST = 6.0  # ft, nearest defender at least this far makes the option "open"
 CUT_SPEED = 4.0  # ft/s toward the hoop that makes a paint option a "cut"
+
+# Advantage curve (layer 2): the best option of the ball handler sampled along the possession.
+# Frames between curve samples (25 fps / 5 = 5 Hz), counted back from release; the decision
+# frame is sampled too, off this grid when it falls between two step frames (ADR-0006).
+CURVE_STEP_FRAMES = 5
+ADVANTAGE_TOLERANCE = 0.10  # pts, a row is advantage when its best pass beats the shot by this
+CURVE_MIN_ROWS = 3  # curves with fewer rows get no advantage window (verdict ``no_window``)
+
+# Possession clip (layer 2): the court and the advantage curve animated together.
+CLIP_BEFORE_S = 3.0  # s shown before the decision frame (as the layer-1 review GIFs)
+CLIP_AFTER_S = 1.0  # s shown after the release, so the ball's flight is visible
+
+# Rankings and reel (layer 2): which decisions are trusted enough to rank, and the late clips.
+MIN_RANK_CONFIDENCE = 0.8  # share of the ten players detected at the decision frame
+MIN_RANK_ADVANTAGE = 0.4  # s, a lost moment needs an advantage of at least two sampled rows
+REEL_LATE_LEAD_S = 1.0  # s shown before a late clip's window starts
+REEL_LATE_MAX_BEFORE_S = 12.0  # s, cap of a late clip's lead before the decision frame

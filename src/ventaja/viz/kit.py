@@ -19,7 +19,7 @@ from ventaja.value.priors import Priors
 from ventaja.viz.animate import render_shot_gif
 from ventaja.viz.text import format_option_table
 
-__all__ = ["RULES", "allocate", "review_kit"]
+__all__ = ["RULES", "allocate", "jersey_labels", "player_name", "players_table", "review_kit"]
 
 RULES = ("gather", "last_dribble", "touch_start")
 REVIEW_LINES = ("Frame de decisión: ok / mal → ", "Opciones valoradas: ok / mal → ", "Comentario: ")
@@ -110,11 +110,31 @@ def _sample(
     return sorted(picked, key=lambda d: (d.game_id, d.release_frame))
 
 
-def _players(settings: Settings) -> pl.DataFrame | None:
+def players_table(settings: Settings) -> pl.DataFrame | None:
+    """The built ``players`` metadata table, or None if it is not built."""
     try:
         return load_meta("players", settings)
     except DataNotFoundError:
         return None
+
+
+def jersey_labels(players: pl.DataFrame | None, game_id: int) -> dict[int, str] | None:
+    """Player id -> jersey number of one game, for the animators' ``labels`` (None: no table)."""
+    if players is None:
+        return None
+    rows = players.filter(pl.col("game_id") == game_id).iter_rows(named=True)
+    return {r["player_id"]: r["jersey"] for r in rows}
+
+
+def player_name(players: pl.DataFrame | None, game_id: int, player_id: int | None) -> str | None:
+    """``"First Last"`` of a player in one game, or None (no table, no id or not found)."""
+    if players is None or player_id is None:
+        return None
+    hit = players.filter((pl.col("game_id") == game_id) & (pl.col("player_id") == player_id))
+    if hit.height == 0:
+        return None
+    row = hit.row(0, named=True)
+    return f"{row['first_name']} {row['last_name']}"
 
 
 def _read(good_read: bool | None) -> str:
@@ -172,7 +192,7 @@ def review_kit(
     counts = Counter(c.rule for c in candidates)
     quota = allocate({r: counts.get(r, 0) for r in RULES}, n)
     sample = _sample(candidates, quota, seed, aligners, priors, model)
-    players = _players(settings)
+    players = players_table(settings)
     names = (
         {
             r["player_id"]: f"{r['first_name']} {r['last_name']}"
@@ -183,14 +203,6 @@ def review_kit(
     )
     out_dir.mkdir(parents=True, exist_ok=True)
     for d in sample:
-        jerseys = (
-            {
-                r["player_id"]: r["jersey"]
-                for r in players.filter(pl.col("game_id") == d.game_id).iter_rows(named=True)
-            }
-            if players is not None
-            else None
-        )
         render_shot_gif(
             aligners[d.game_id],
             d,
@@ -198,7 +210,7 @@ def review_kit(
             before_s=before_s,
             after_s=after_s,
             fps=fps,
-            labels=jerseys,
+            labels=jersey_labels(players, d.game_id),
         )
     split = ", ".join(f"{r} {sum(d.rule == r for d in sample)}" for r in RULES)
     population = ", ".join(f"{r} {counts.get(r, 0)}" for r in RULES)

@@ -5,6 +5,7 @@
 consume snapshots and never read ``left_hoop`` itself.
 """
 
+from collections.abc import Sequence
 from functools import cached_property
 from typing import Any
 
@@ -17,6 +18,7 @@ from ventaja.errors import DataNotFoundError, NoTrackingError, VentajaError
 from ventaja.geometry.court import orient_frame
 from ventaja.model.decision import DecisionFrame
 from ventaja.model.snapshot import BallPos, PlayerPos, Snapshot
+from ventaja.value.params import SHOT_CLOCK_EXPIRY_LOOKBACK, SHOT_CLOCK_OFF
 
 
 def _row_containing(df: pl.DataFrame, frame_idx: int) -> dict[str, Any] | None:
@@ -26,6 +28,27 @@ def _row_containing(df: pl.DataFrame, frame_idx: int) -> dict[str, Any] | None:
 
 
 _REACH = 2  # neighbour frames read on each side of a frame for velocity
+
+
+def _shot_clock(raw: float | None, history: Sequence[float | None] = ()) -> float | None:
+    """The snapshot's shot clock: a raw ``SHOT_CLOCK_OFF`` (0.0) is off (unknown) or expired.
+
+    SkillCorner reports 0.0 while the shot clock is switched off (e.g. the end of a period
+    with under 24 s on the game clock), so 0.0 reads as ``None`` (ADR-0007), unless the clock
+    has just run out: ``history`` holds the raw readings of the previous
+    ``SHOT_CLOCK_EXPIRY_LOOKBACK`` frames, oldest first, and a 0.0 reached by a countdown in
+    them (some positive reading and no reading above an earlier one) stays 0.0, expired.
+    """
+    if raw is None:
+        return None
+    if raw != SHOT_CLOCK_OFF:
+        return float(raw)
+    readings = [r for r in history if r is not None]
+    descending = all(b <= a for a, b in zip(readings, readings[1:], strict=False))
+    if descending and any(r > SHOT_CLOCK_OFF for r in readings):
+        return SHOT_CLOCK_OFF
+    return None
+
 
 Velocity = tuple[float | None, float | None]
 
@@ -125,6 +148,25 @@ class Aligner:
             )
         return self._build(context, frame_idx, possession)
 
+    def _clock_history(self, frame_idx: int) -> list[float | None]:
+        """Raw shot clock of each tracked frame in the lookback before ``frame_idx``, in order.
+
+        One cheap collect of two columns over ``SHOT_CLOCK_EXPIRY_LOOKBACK`` frames; only run
+        when the frame's own reading is 0.0 (ADR-0007).
+        """
+        rows = (
+            self._tracking.filter(
+                pl.col("frame_idx").is_between(
+                    frame_idx - SHOT_CLOCK_EXPIRY_LOOKBACK, frame_idx - 1
+                )
+            )
+            .select("frame_idx", "shot_clock")
+            .unique("frame_idx")
+            .sort("frame_idx")
+            .collect()
+        )
+        return rows["shot_clock"].to_list()
+
     def _frame_rows(self, frame_idx: int) -> pl.DataFrame:
         """Tracking rows of ``[frame_idx - 2, frame_idx + 2]`` (one collect).
 
@@ -142,6 +184,25 @@ class Aligner:
         hit = self._shots.filter(pl.col("id") == shot_id)
         if hit.height == 0:
             raise DataNotFoundError(f"shot {shot_id} not found in game {self.game_id}")
+        return hit.row(0, named=True)
+
+    def touches_of(self, possession_id: str) -> pl.DataFrame:
+        """Touches of one possession, sorted by ``start_frame``."""
+        return self._touches.filter(pl.col("possession_id") == possession_id).sort("start_frame")
+
+    def chance_of_shot(self, shot_id: str) -> dict[str, Any]:
+        """The ``chances`` row the shot belongs to (``shots.chance_id``).
+
+        Raises DataNotFoundError if the shot has no chance_id or the chance row is missing.
+        """
+        chance_id = self.shot(shot_id).get("chance_id")
+        if chance_id is None:
+            raise DataNotFoundError(f"game {self.game_id}: shot {shot_id} has no chance_id")
+        hit = self._chances.filter(pl.col("id") == chance_id)
+        if hit.height == 0:
+            raise DataNotFoundError(
+                f"game {self.game_id}: chance {chance_id} of shot {shot_id} not found"
+            )
         return hit.row(0, named=True)
 
     def decision_frame(self, shot_id: str) -> DecisionFrame:
@@ -192,13 +253,15 @@ class Aligner:
         a possession boundary therefore flips orientation by 180 degrees and swaps offense and
         defense at the boundary; consumers must split the result on ``possession_id``.
         """
+        lookback = max(_REACH, SHOT_CLOCK_EXPIRY_LOOKBACK)
         rows = (
-            self._tracking.filter(pl.col("frame_idx").is_between(start - _REACH, end + _REACH))
+            self._tracking.filter(pl.col("frame_idx").is_between(start - lookback, end + _REACH))
             .sort("frame_idx")
             .collect()
         )
         out: list[Snapshot] = []
         parts = {int(k[0]): v for k, v in rows.partition_by("frame_idx", as_dict=True).items()}
+        clock = {f: part["shot_clock"][0] for f, part in parts.items()}
         for frame_idx in sorted(f for f in parts if start <= f <= end):
             possession = self.possession_at(frame_idx)
             if possession is not None:
@@ -207,14 +270,27 @@ class Aligner:
                     for f in range(frame_idx - _REACH, frame_idx + _REACH + 1)
                     if f in parts
                 )
-                out.append(self._build(near, frame_idx, possession))
+                history = [
+                    clock[f]
+                    for f in range(frame_idx - SHOT_CLOCK_EXPIRY_LOOKBACK, frame_idx)
+                    if f in clock
+                ]
+                out.append(self._build(near, frame_idx, possession, history))
         return out
 
-    def _build(self, context: pl.DataFrame, frame_idx: int, possession: dict[str, Any]) -> Snapshot:
+    def _build(
+        self,
+        context: pl.DataFrame,
+        frame_idx: int,
+        possession: dict[str, Any],
+        clock_history: Sequence[float | None] | None = None,
+    ) -> Snapshot:
         """Assemble the Snapshot of ``frame_idx`` from tracking rows around it.
 
         ``context`` holds the rows of ``frame_idx`` and of its +/-2 neighbours; the neighbours
-        only feed the velocities.
+        only feed the velocities. A raw shot clock of 0.0 is read against ``clock_history``
+        (the raw clock of the previous ``SHOT_CLOCK_EXPIRY_LOOKBACK`` frames, see
+        ``_shot_clock``), collected here when not given.
         """
         left_hoop = bool(possession["left_hoop"])
         rows = context.filter(pl.col("frame_idx") == frame_idx)
@@ -259,13 +335,16 @@ class Aligner:
         if ball is None:
             raise NoTrackingError(f"game {self.game_id} has no ball at frame {frame_idx}")
         chance = self.chance_at(frame_idx)
+        raw_clock = first["shot_clock"]
+        if raw_clock == SHOT_CLOCK_OFF and clock_history is None:
+            clock_history = self._clock_history(frame_idx)
         return Snapshot(
             game_id=self.game_id,
             frame_idx=frame_idx,
             wall_clock=first["wall_clock"],
             period=first["period"],
             game_clock=first["game_clock"],
-            shot_clock=first["shot_clock"],
+            shot_clock=_shot_clock(raw_clock, clock_history or ()),
             possession_id=possession["id"],
             chance_id=chance["id"] if chance else None,
             off_team_id=off_team_id,

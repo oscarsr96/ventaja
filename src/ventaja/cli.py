@@ -11,20 +11,29 @@ import polars as pl
 import typer
 
 from ventaja import __version__
+from ventaja import reel as reel_module
 from ventaja.config import GAME_IDS, Settings
 from ventaja.data import build as build_module
 from ventaja.data import pull as pull_module
 from ventaja.data.catalog import files_for
 from ventaja.data.duck import connect
-from ventaja.data.load import load_decision_options, load_decisions
+from ventaja.data.load import (
+    load_curve_summaries,
+    load_curves,
+    load_decision_options,
+    load_decisions,
+)
 from ventaja.decision.align import Aligner
-from ventaja.decision.cost import build_decisions
+from ventaja.decision.cost import build_decisions, decision_from_tables
+from ventaja.decision.curve import build_curves
 from ventaja.errors import DataNotFoundError, VentajaError
 from ventaja.validate import decisions as decisions_checks
 from ventaja.validate import score as score_module
 from ventaja.value import model as model_module
 from ventaja.value.features import shot_rows
+from ventaja.value.params import CLIP_AFTER_S, CLIP_BEFORE_S
 from ventaja.value.priors import Priors
+from ventaja.viz import clip as clip_module
 from ventaja.viz import kit as kit_module
 from ventaja.viz.text import format_option_table
 
@@ -37,8 +46,12 @@ model = typer.Typer(help="Train and inspect the value model.", no_args_is_help=T
 app.add_typer(model, name="model")
 decisions = typer.Typer(help="Build and inspect shot decision costs.", no_args_is_help=True)
 app.add_typer(decisions, name="decisions")
+curves = typer.Typer(help="Build and inspect possession advantage curves.", no_args_is_help=True)
+app.add_typer(curves, name="curves")
 review = typer.Typer(help="Prepare the live review of decisions.", no_args_is_help=True)
 app.add_typer(review, name="review")
+reel = typer.Typer(help="Rank decisions and build the reel of clips.", no_args_is_help=True)
+app.add_typer(reel, name="reel")
 
 
 def _version_callback(value: bool) -> None:
@@ -467,6 +480,186 @@ def decisions_show(
     )
 
 
+VERDICTS = ("late", "during", "none", "no_window")
+
+
+def _curve_summary(valued: int, summaries: pl.DataFrame) -> str:
+    counts = dict(summaries.group_by("verdict").len().iter_rows())
+    verdicts = ", ".join(f"{v} {counts.get(v, 0)}" for v in VERDICTS)
+    windows = summaries.filter(pl.col("window_start").is_not_null())["advantage_seconds"]
+    median = f"{float(windows.median()):.1f} s" if windows.len() else "n/a"  # type: ignore[arg-type]
+    return (
+        f"{valued} shots, {summaries.height} curves; {verdicts}; "
+        f"median advantage {median} (over {windows.len()} windows)"
+    )
+
+
+@curves.command("build")
+def curves_build(
+    game: GameOption = None,
+    all_games: AllOption = False,
+    model_path: Annotated[
+        Path | None, typer.Option("--model", help="Model JSON path (default: versioned model).")
+    ] = None,
+    out: Annotated[
+        Path | None,
+        typer.Option("--out", help="Output directory (default: the build's curves/)."),
+    ] = None,
+) -> None:
+    """Sample the handler's best option along each valued shot's chance and summarize it."""
+    if not game and not all_games:
+        typer.echo("error: choose games with --game ID (repeatable) or --all", err=True)
+        raise typer.Exit(code=2)
+    try:
+        settings = Settings.from_env()
+        loaded = (
+            model_module.ValueModel.load(model_path)
+            if model_path
+            else model_module.ValueModel.default()
+        )
+        priors = Priors.from_settings(settings)
+        for game_id in GAME_IDS if all_games else game or []:
+            valued = load_decisions(game_id, settings).filter(pl.col("rule") != "excluded")
+            curve_path, summary_path = build_curves(
+                game_id, settings, model=loaded, priors=priors, out_dir=out
+            )
+            summary = _curve_summary(valued.height, pl.read_parquet(summary_path))
+            typer.echo(f"game {game_id}: {summary}")
+            typer.echo(f"  -> {curve_path}")
+    except VentajaError as exc:
+        typer.echo(f"error: {exc}", err=True)
+        raise typer.Exit(code=1) from exc
+
+
+def _best(row: dict[str, Any]) -> str:
+    if row["best_option_type"] == "shot":
+        return f"{row['best_player_id']} shot"
+    return f"{row['best_player_id']} pass/{row['best_alt_type']}"
+
+
+@curves.command("show")
+def curves_show(
+    shot_id: Annotated[str, typer.Argument(help="Shot id, e.g. shot-114243-1-0.")],
+) -> None:
+    """Print a shot's curve summary and its curve, one row per sampled frame."""
+    try:
+        settings = Settings.from_env()
+        game_id = _game_of_shot(shot_id)
+        hit = load_curve_summaries(game_id, settings).filter(pl.col("shot_id") == shot_id)
+        if hit.height == 0:
+            raise DataNotFoundError(
+                f"shot {shot_id} not found in the curve summaries of {game_id} "
+                "(excluded shots have no curve)"
+            )
+        s = hit.row(0, named=True)
+        curve = load_curves(game_id, settings).filter(pl.col("shot_id") == shot_id)
+    except VentajaError as exc:
+        typer.echo(f"error: {exc}", err=True)
+        raise typer.Exit(code=1) from exc
+    typer.echo(f"{shot_id}  {s['headline_es']}")
+    typer.echo(
+        f"verdict {s['verdict']}  rows {s['n_rows']}  span {s['span_start']}-{s['span_end']}  "
+        f"shot value {_fmt(s['shot_value'])}  skipped off court {s['skipped_off_court']}"
+    )
+    typer.echo(
+        f"window {s['window_start'] or '-'}-{s['window_end'] or '-'}  "
+        f"handler {s['window_handler_id'] or '-'}  best pass {_fmt(s['window_peak_value'])}  "
+        f"advantage {s['advantage_seconds']:.1f} s  lag {_fmt(s['release_lag_seconds'], '.1f')} s"
+    )
+    typer.echo(
+        f"peak {_fmt(s['peak_value'])} at {s['peak_frame'] or '-'}  "
+        f"value at decision {_fmt(s['value_at_decision'])}"
+    )
+    typer.echo(
+        f"{'t_to_release':>12} {'handler':>8} {'shot_clock':>10} {'handler_shot_value':>18} "
+        f"{'best_value':>10} {'best_pass_value':>15}  best"
+    )
+    for r in curve.sort("frame_idx").iter_rows(named=True):
+        typer.echo(
+            f"{r['t_to_release']:>12.1f} {r['handler_id']:>8} {_fmt(r['shot_clock'], '.2f'):>10} "
+            f"{r['handler_shot_value']:>18.3f} {r['best_value']:>10.3f} "
+            f"{_fmt(r['best_pass_value']):>15}  {_best(r)}"
+        )
+
+
+@curves.command("plot")
+def curves_plot(
+    shot_id: Annotated[str, typer.Argument(help="Shot id, e.g. shot-114243-1-0.")],
+    out: Annotated[Path, typer.Option("--out", help="Output image file (e.g. curve.png).")],
+) -> None:
+    """Save a shot's advantage curve as an image, titled with its headline."""
+    try:
+        settings = Settings.from_env()
+        game_id = _game_of_shot(shot_id)
+        decision = decision_from_tables(
+            shot_id, load_decisions(game_id, settings), load_decision_options(game_id, settings)
+        )
+        curve, summary = clip_module.curve_of_shot(
+            shot_id, load_curves(game_id, settings), load_curve_summaries(game_id, settings)
+        )
+        name = kit_module.player_name(
+            kit_module.players_table(settings), game_id, summary.window_handler_id
+        )
+        path = clip_module.curve_figure(
+            curve,
+            summary,
+            decision.decision_frame,
+            out,
+            shooter_id=decision.shooter_id,
+            handler_name=name,
+        )
+    except VentajaError as exc:
+        typer.echo(f"error: {exc}", err=True)
+        raise typer.Exit(code=1) from exc
+    typer.echo(f"curve -> {path}")
+
+
+@app.command("clip")
+def clip(
+    shot_id: Annotated[str, typer.Argument(help="Shot id, e.g. shot-114243-1-0.")],
+    out: Annotated[Path, typer.Option("--out", help="Output GIF file.")],
+    fps: Annotated[int, typer.Option("--fps", help="Frames per second of the GIF.")] = 12,
+    before: Annotated[
+        float, typer.Option("--before", help="Seconds shown before the decision frame.")
+    ] = CLIP_BEFORE_S,
+    after: Annotated[
+        float, typer.Option("--after", help="Seconds shown after the release.")
+    ] = CLIP_AFTER_S,
+) -> None:
+    """Animate a shot's possession (court) with its advantage curve underneath, as a GIF.
+
+    Decisions and curves come from the build or the packaged artifacts; the court needs the
+    game's built events and tracking (`ventaja data build --game N`).
+    """
+    try:
+        settings = Settings.from_env()
+        game_id = _game_of_shot(shot_id)
+        decision = decision_from_tables(
+            shot_id, load_decisions(game_id, settings), load_decision_options(game_id, settings)
+        )
+        curve, summary = clip_module.curve_of_shot(
+            shot_id, load_curves(game_id, settings), load_curve_summaries(game_id, settings)
+        )
+        players = kit_module.players_table(settings)
+        labels = kit_module.jersey_labels(players, game_id)
+        path = clip_module.render_clip(
+            Aligner(game_id, settings),
+            decision,
+            curve,
+            summary,
+            out,
+            before_s=before,
+            after_s=after,
+            fps=fps,
+            labels=labels,
+            handler_name=kit_module.player_name(players, game_id, summary.window_handler_id),
+        )
+    except VentajaError as exc:
+        typer.echo(f"error: {exc}", err=True)
+        raise typer.Exit(code=1) from exc
+    typer.echo(f"clip -> {path}")
+
+
 @review.command("sample")
 def review_sample(
     out: Annotated[Path, typer.Option("--out", help="Output directory of the kit.")],
@@ -485,3 +678,59 @@ def review_sample(
     count = sum(line.startswith("## ") for line in path.read_text().splitlines())
     typer.echo(f"review -> {path}")
     typer.echo(f"{count} {'GIF' if count == 1 else 'GIFs'} in {path.parent}")
+
+
+def _reel_games(game: list[int] | None, all_games: bool) -> list[int]:
+    if not game and not all_games:
+        typer.echo("error: choose games with --game ID (repeatable) or --all", err=True)
+        raise typer.Exit(code=2)
+    return list(GAME_IDS) if all_games else list(game or [])
+
+
+_METRIC = {"worst": "cost", "best": "margin", "late": "release_lag_seconds"}
+
+
+@reel.command("rankings")
+def reel_rankings(
+    game: GameOption = None,
+    all_games: AllOption = False,
+    n: Annotated[int, typer.Option("--n", min=1, help="Shots per ranking.")] = 10,
+) -> None:
+    """Print the worst decisions, the best reads and the lost moments (late, held)."""
+    ids = _reel_games(game, all_games)
+    try:
+        tables = reel_module.rankings(Settings.from_env(), ids, n=n)
+    except VentajaError as exc:
+        typer.echo(f"error: {exc}", err=True)
+        raise typer.Exit(code=1) from exc
+    *ranked, low = tables
+    typer.echo(f"{low} decisions left out by confidence")
+    for (kind, heading, _), table in zip(reel_module.SECTIONS, ranked, strict=True):
+        typer.echo(f"\n{heading} ({kind}, by {_METRIC[kind]})")
+        for r in table.iter_rows(named=True):
+            typer.echo(
+                f"{r['rank']:>3} {r['shot_id']:<20} {r['shooter'][:24]:<24} "
+                f"{_fmt(r[_METRIC[kind]], '.2f'):>6}  {r['headline_es']}"
+            )
+
+
+@reel.command("build")
+def reel_build(
+    out: Annotated[Path, typer.Option("--out", help="Output directory of the reel.")],
+    game: GameOption = None,
+    all_games: AllOption = False,
+    n: Annotated[int, typer.Option("--n", min=1, help="Shots per ranking.")] = 10,
+    fps: Annotated[int, typer.Option("--fps", help="Frames per second of the GIFs.")] = 12,
+) -> None:
+    """Render one clip per ranked shot (three rankings) and write index.md."""
+    ids = _reel_games(game, all_games)
+    try:
+        path = reel_module.build_reel(Settings.from_env(), ids, n=n, out_dir=out, fps=fps)
+    except VentajaError as exc:
+        typer.echo(f"error: {exc}", err=True)
+        raise typer.Exit(code=1) from exc
+    count = len(list(path.parent.glob("*.gif")))
+    typer.echo(f"reel -> {path}")
+    typer.echo(f"{count} {'GIF' if count == 1 else 'GIFs'} in {path.parent}")
+    skipped = reel_module.skipped_clips(path)
+    typer.echo(f"{skipped} {'clip' if skipped == 1 else 'clips'} not available (see index.md)")

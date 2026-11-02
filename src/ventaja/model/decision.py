@@ -66,3 +66,45 @@ class Decision(_Frozen):
     good_read: bool | None
     confidence: float
     options: list[Option]
+
+
+Verdict = Literal["late", "during", "none", "no_window"]
+
+
+class CurveSummary(_Frozen):
+    """The advantage window of a possession curve, relative to the shot taken.
+
+    A curve row is advantage when its best viable pass reaches
+    ``shot_value + ADVANTAGE_TOLERANCE`` (the handler's own shot never counts). A run is a
+    maximal sequence of consecutive advantage rows of one handler (``window_handler_id``); the
+    summary keeps the last run that starts at or before the decision frame. ``late``: that run
+    ended before the decision frame (``release_lag_seconds > 0``); ``during``: the decision
+    frame lies inside it (lag 0.0); ``none``: no advantage row at or before the decision
+    frame (window fields None, ``advantage_seconds`` 0.0). With fewer than ``CURVE_MIN_ROWS``
+    rows the verdict is ``no_window`` and every optional field is None. ``peak_frame`` and
+    ``peak_value`` describe the whole curve's ``best_value``; ``window_peak_value`` is the
+    run's highest ``best_pass_value``. ``span_start``/``span_end`` are the first and last
+    sampled frames (None when empty). ``held_to_decision`` is True only for a ``late`` whose
+    run belongs to the shooter and whose every row after the run, up to the decision frame,
+    has the shooter as handler: he kept the ball while the advantage closed. A ``late``
+    without it means the advantage was used (the ball went to another player) or belonged
+    to an earlier handler.
+    """
+
+    shot_id: str
+    game_id: int
+    n_rows: int
+    span_start: int | None
+    span_end: int | None
+    peak_frame: int | None
+    peak_value: float | None
+    window_start: int | None
+    window_end: int | None
+    window_handler_id: int | None
+    window_peak_value: float | None
+    advantage_seconds: float
+    release_lag_seconds: float | None
+    value_at_decision: float | None
+    shot_value: float
+    verdict: Verdict
+    held_to_decision: bool

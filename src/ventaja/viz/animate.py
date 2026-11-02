@@ -3,7 +3,7 @@
 pyplot is imported lazily (``Agg`` backend) so importing this module has no side effects.
 """
 
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from pathlib import Path
 from typing import Any
 
@@ -14,7 +14,19 @@ from ventaja.model.decision import Decision, Option
 from ventaja.model.snapshot import Snapshot
 from ventaja.viz.court import draw_half_court
 
-__all__ = ["VALUE_RANGE", "render_shot_gif", "select_frames"]
+__all__ = [
+    "DPI",
+    "FIGSIZE",
+    "VALUE_RANGE",
+    "add_value_colorbar",
+    "clip_frames",
+    "decision_title",
+    "draw_frame",
+    "draw_options",
+    "render_shot_gif",
+    "select_frames",
+    "write_gif",
+]
 
 VALUE_RANGE = (0.6, 1.5)  # fixed colour scale of the options' adjusted value (points)
 FIGSIZE = (6.0, 6.4)
@@ -39,12 +51,79 @@ def select_frames(snapshots: list[Snapshot], decision_frame: int, fps: int) -> l
     ]
 
 
-def _title(decision: Decision) -> str:
+def clip_frames(
+    aligner: Aligner, decision: Decision, before_s: float, after_s: float, fps: int
+) -> list[Snapshot]:
+    """Frames to animate: ``before_s`` before the decision frame to ``after_s`` after release.
+
+    Filtered by ``select_frames`` (one possession, every ``round(25 / fps)`` frames). Raises
+    NoTrackingError if no frame is tracked.
+    """
+    window = aligner.window(
+        decision.decision_frame - round(before_s * FPS),
+        decision.release_frame + round(after_s * FPS),
+    )
+    frames = select_frames(window, decision.decision_frame, fps)
+    if not frames:
+        raise NoTrackingError(f"shot {decision.shot_id}: no tracked frame to animate")
+    return frames
+
+
+def write_gif(
+    fig: Any,
+    out: Path,
+    frames: list[Snapshot],
+    decision_frame: int,
+    fps: int,
+    draw: Callable[[Snapshot, bool], list[Any]],
+) -> Path:
+    """Write ``frames`` as a GIF of ``fig``, holding the decision frame for one second.
+
+    ``draw(snapshot, at_decision)`` draws one frame and returns the artists to remove once
+    it is grabbed. The figure is closed afterwards.
+    """
+    import matplotlib.pyplot as plt
+    from matplotlib.animation import PillowWriter
+
+    out.parent.mkdir(parents=True, exist_ok=True)
+    writer = PillowWriter(fps=fps)
+    try:
+        with writer.saving(fig, str(out), dpi=DPI):
+            for snap in frames:
+                at_decision = snap.frame_idx == decision_frame
+                artists = draw(snap, at_decision)
+                for _ in range(fps if at_decision else 1):
+                    writer.grab_frame()
+                for artist in artists:
+                    artist.remove()
+    finally:
+        plt.close(fig)
+    return out
+
+
+def add_value_colorbar(fig: Any, ax: Any) -> None:
+    """Horizontal colorbar of the options' adjusted value under the court ``ax``."""
+    from matplotlib import cm, colormaps
+    from matplotlib.colors import Normalize
+
+    mappable = cm.ScalarMappable(norm=Normalize(*VALUE_RANGE), cmap=colormaps["viridis"])
+    fig.colorbar(
+        mappable,
+        ax=ax,
+        orientation="horizontal",
+        fraction=0.04,
+        pad=0.02,
+        label="adjusted value (pts)",
+    )
+
+
+def decision_title(decision: Decision) -> str:
+    """``shot_id · rule · clock · cost`` line of a decision."""
     clock = "—" if decision.shot_clock is None else f"{decision.shot_clock:.1f}"
     return f"{decision.shot_id} · {decision.rule} · clock {clock} · cost {decision.cost:.2f}"
 
 
-def _draw_frame(
+def draw_frame(
     ax: Any,
     snap: Snapshot,
     decision: Decision,
@@ -108,11 +187,11 @@ def _draw_frame(
         ax.text(-46.5, -24.5, f"frame {snap.frame_idx} · clock {clock}{status}", fontsize=7)
     )
     if at_decision:
-        artists.extend(_draw_options(ax, snap, decision, by_player, cmap, norm))
+        artists.extend(draw_options(ax, snap, decision, by_player, cmap, norm))
     return artists
 
 
-def _draw_options(
+def draw_options(
     ax: Any,
     snap: Snapshot,
     decision: Decision,
@@ -175,40 +254,17 @@ def render_shot_gif(
 
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt
-    from matplotlib import cm, colormaps
-    from matplotlib.animation import PillowWriter
-    from matplotlib.colors import Normalize
 
-    window = aligner.window(
-        decision.decision_frame - round(before_s * FPS),
-        decision.release_frame + round(after_s * FPS),
-    )
-    frames = select_frames(window, decision.decision_frame, fps)
-    if not frames:
-        raise NoTrackingError(f"shot {decision.shot_id}: no tracked frame to animate")
+    frames = clip_frames(aligner, decision, before_s, after_s, fps)
     fig, ax = plt.subplots(figsize=FIGSIZE)
     draw_half_court(ax)
-    ax.set_title(_title(decision), fontsize=9)
-    mappable = cm.ScalarMappable(norm=Normalize(*VALUE_RANGE), cmap=colormaps["viridis"])
-    fig.colorbar(
-        mappable,
-        ax=ax,
-        orientation="horizontal",
-        fraction=0.04,
-        pad=0.02,
-        label="adjusted value (pts)",
+    ax.set_title(decision_title(decision), fontsize=9)
+    add_value_colorbar(fig, ax)
+    return write_gif(
+        fig,
+        out,
+        frames,
+        decision.decision_frame,
+        fps,
+        lambda snap, at: draw_frame(ax, snap, decision, labels or {}, at_decision=at),
     )
-    out.parent.mkdir(parents=True, exist_ok=True)
-    writer = PillowWriter(fps=fps)
-    try:
-        with writer.saving(fig, str(out), dpi=DPI):
-            for snap in frames:
-                at_decision = snap.frame_idx == decision.decision_frame
-                artists = _draw_frame(ax, snap, decision, labels or {}, at_decision=at_decision)
-                for _ in range(fps if at_decision else 1):
-                    writer.grab_frame()
-                for artist in artists:
-                    artist.remove()
-    finally:
-        plt.close(fig)
-    return out

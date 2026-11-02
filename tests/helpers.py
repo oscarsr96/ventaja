@@ -1,5 +1,8 @@
 """Builders for synthetic test objects."""
 
+from typing import Any, Literal
+
+from ventaja.model.decision import Decision, Option
 from ventaja.model.snapshot import BallPos, PlayerPos, Snapshot
 
 # (player_id, x, y) or (player_id, x, y, vx, vy)
@@ -44,3 +47,52 @@ def make_snapshot(
         defense=[_pos(s, 2) for s in defense],
         ball=BallPos(x=bx, y=by, z=0.0, speed=0.0, is_detected=True),
     )
+
+
+def decision_with(**overrides: Any) -> Decision:
+    """A valid synthetic ``Decision`` (shot plus four passes); ``overrides`` replace fields."""
+
+    def option(
+        player_id: int, option_type: Literal["shot", "pass"], value: float, via: float
+    ) -> Option:
+        return Option(
+            player_id=player_id,
+            option_type=option_type,
+            zone="mid_range",
+            points=2,
+            x=15.0,
+            y=0.0,
+            pass_distance=0.0 if option_type == "shot" else 15.0,
+            lane_blocked=False,
+            proba=value / 2,
+            value=value,
+            viability=via,
+            adjusted_value=value * via,
+            alternative_type=None if option_type == "shot" else "other",
+            features={},
+        )
+
+    fields: dict[str, Any] = {
+        "shot_id": "shot-1-1-0",
+        "game_id": 1,
+        "shooter_id": 10,
+        "decision_frame": 100,
+        "release_frame": 110,
+        "rule": "gather",
+        "shot_clock": 12.0,
+        "shot_value": 0.9,
+        "best_alt_player_id": 11,
+        "best_alt_type": "other",
+        "best_alt_value": 1.0,
+        "cost": 0.1,
+        "good_read": False,
+        "confidence": 1.0,
+        "options": [
+            option(10, "shot", 0.9, 1.0),
+            option(11, "pass", 1.0, 1.0),
+            option(12, "pass", 0.8, 1.0),
+            option(13, "pass", 0.7, 1.0),
+            option(14, "pass", 0.6, 1.0),
+        ],
+    }
+    return Decision(**{**fields, **overrides})
