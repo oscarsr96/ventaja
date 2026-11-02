@@ -39,7 +39,7 @@ uv run ventaja validate decisions --game 114243
 uv run ventaja review sample --all --n 20 --seed 7 --out docs/review/2026-11-sample
 ```
 
-The sanity check `cost_falls_with_clock` currently fails and is deliberately not tuned; it is for the live review session described in [docs/review/README.md](docs/review/README.md).
+On the full 10-game build, `ventaja validate decisions --all` currently fails `cost_falls_with_clock`; it is deliberately not tuned (ADR-0004) and is left for the live review session described in [docs/review/README.md](docs/review/README.md).
 
 ## Development
 

@@ -37,9 +37,10 @@ jobs:
       - run: uv run ventaja validate score --game 114243
       - run: uv run ventaja snapshot shot-114243-1-0
       - run: uv run ventaja decisions build --game 114243
-      # Sanity checks are diagnostics for the live validation session: check 1
-      # (cost falls with clock) fails on real data and check 4 fails on the
-      # trimmed single game. Keep them visible without blocking CI.
+      # Sanity checks are diagnostics for the live validation session.
+      # cost_falls_with_clock currently fails on the full 10-game build (ADR-0004)
+      # and the checks may flip when the model or constants change, so they are
+      # kept visible without blocking CI.
       - run: uv run ventaja validate decisions --game 114243
         continue-on-error: true
       - run: uv run ventaja decisions show shot-114243-1-0
