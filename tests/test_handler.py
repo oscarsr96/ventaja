@@ -16,6 +16,7 @@ def test_handler_follows_touches(built_fixture: Settings) -> None:
     assert h.handler_at(3840) == 28247  # touch-114243-1-15 (3835-3850)
     assert h.handler_at(3851) is None  # ball in flight between two touches
     assert h.handler_at(1) is None
+    assert h.handler_at(3896) is None  # after the last touch
     assert h.spans()[-1] == (3852, 3895, 35028)
     assert h.spans() == sorted(h.spans())
 
@@ -42,3 +43,31 @@ def test_chance_of_shot(built_fixture: Settings) -> None:
 def test_chance_of_unknown_shot_raises(built_fixture: Settings) -> None:
     with pytest.raises(DataNotFoundError, match="nope"):
         Aligner(114243, built_fixture).chance_of_shot("nope")
+
+
+def test_handler_empty_touches() -> None:
+    empty = pl.DataFrame(
+        {"start_frame": [], "end_frame": [], "player_id": []},
+        schema={"start_frame": pl.Int64, "end_frame": pl.Int64, "player_id": pl.Int64},
+    )
+    h = BallHandler(empty)
+    assert h.spans() == []
+    assert h.handler_at(10) is None
+
+
+def test_chance_of_shot_without_chance_id_raises(
+    built_fixture: Settings, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    a = Aligner(114243, built_fixture)
+    monkeypatch.setattr(a, "shot", lambda shot_id: {"id": shot_id, "chance_id": None})
+    with pytest.raises(DataNotFoundError, match="shot-x.*no chance_id"):
+        a.chance_of_shot("shot-x")
+
+
+def test_chance_of_shot_with_missing_chance_row_raises(
+    built_fixture: Settings, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    a = Aligner(114243, built_fixture)
+    monkeypatch.setattr(a, "shot", lambda shot_id: {"id": shot_id, "chance_id": "chance-ghost"})
+    with pytest.raises(DataNotFoundError, match="chance-ghost.*shot-x"):
+        a.chance_of_shot("shot-x")
