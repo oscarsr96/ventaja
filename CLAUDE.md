@@ -21,6 +21,7 @@ Python >=3.12, managed with `uv`. Layout `src/ventaja/`. polars, duckdb, pydanti
 - `uv run ventaja curves build --all --out artifacts/curves` (default `--out`: the build's `curves/`), `uv run ventaja curves show shot-114243-1-0`
 - `uv run ventaja curves plot shot-114243-1-0 --out curve.png`, `uv run ventaja clip shot-114243-1-0 --out clip.gif` (`--fps`, `--before`, `--after`; the clip needs the game built with `data build`)
 - `uv run ventaja review sample --all --n 20 --seed 7 --out docs/review/2026-11-sample`
+- `uv run ventaja reel rankings --all --n 10`, `uv run ventaja reel build --all --n 10 --out docs/reel/2026-11` (`--fps`; GIFs are gitignored, `index.md` is committed)
 - Real-data tests: `VENTAJA_REALDATA_DIR=<raw dir> VENTAJA_REALDATA_BUILD_DIR=<scratch build dir> uv run pytest -m realdata`
 
 ## Conventions

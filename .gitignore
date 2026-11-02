@@ -8,3 +8,4 @@ dist/
 *.egg-info
 .env
 docs/review/*/*.gif
+docs/reel/*/*.gif

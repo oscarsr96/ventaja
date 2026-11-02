@@ -61,3 +61,9 @@ CURVE_MIN_ROWS = 3  # curves with fewer rows get no advantage window (verdict ``
 # Possession clip (layer 2): the court and the advantage curve animated together.
 CLIP_BEFORE_S = 3.0  # s shown before the decision frame (as the layer-1 review GIFs)
 CLIP_AFTER_S = 1.0  # s shown after the release, so the ball's flight is visible
+
+# Rankings and reel (layer 2): which decisions are trusted enough to rank, and the late clips.
+MIN_RANK_CONFIDENCE = 0.8  # share of the ten players detected at the decision frame
+MIN_RANK_ADVANTAGE = 0.4  # s, a lost moment needs an advantage of at least two sampled rows
+REEL_LATE_LEAD_S = 1.0  # s shown before a late clip's window starts
+REEL_LATE_MAX_BEFORE_S = 8.0  # s, cap of a late clip's lead before the decision frame

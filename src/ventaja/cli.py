@@ -11,6 +11,7 @@ import polars as pl
 import typer
 
 from ventaja import __version__
+from ventaja import reel as reel_module
 from ventaja.config import GAME_IDS, Settings
 from ventaja.data import build as build_module
 from ventaja.data import pull as pull_module
@@ -49,6 +50,8 @@ curves = typer.Typer(help="Build and inspect possession advantage curves.", no_a
 app.add_typer(curves, name="curves")
 review = typer.Typer(help="Prepare the live review of decisions.", no_args_is_help=True)
 app.add_typer(review, name="review")
+reel = typer.Typer(help="Rank decisions and build the reel of clips.", no_args_is_help=True)
+app.add_typer(reel, name="reel")
 
 
 def _version_callback(value: bool) -> None:
@@ -662,4 +665,58 @@ def review_sample(
         raise typer.Exit(code=1) from exc
     count = sum(line.startswith("## ") for line in path.read_text().splitlines())
     typer.echo(f"review -> {path}")
+    typer.echo(f"{count} {'GIF' if count == 1 else 'GIFs'} in {path.parent}")
+
+
+def _reel_games(game: list[int] | None, all_games: bool) -> list[int]:
+    if not game and not all_games:
+        typer.echo("error: choose games with --game ID (repeatable) or --all", err=True)
+        raise typer.Exit(code=2)
+    return list(GAME_IDS) if all_games else list(game or [])
+
+
+_METRIC = {"worst": "cost", "best": "margin", "late": "release_lag_seconds"}
+
+
+@reel.command("rankings")
+def reel_rankings(
+    game: GameOption = None,
+    all_games: AllOption = False,
+    n: Annotated[int, typer.Option("--n", help="Shots per ranking.")] = 10,
+) -> None:
+    """Print the worst decisions, the best reads and the lost moments (late, held)."""
+    ids = _reel_games(game, all_games)
+    try:
+        tables = reel_module.rankings(Settings.from_env(), ids, n=n)
+    except VentajaError as exc:
+        typer.echo(f"error: {exc}", err=True)
+        raise typer.Exit(code=1) from exc
+    *ranked, low = tables
+    typer.echo(f"{low} decisions left out by confidence")
+    for (kind, heading, _), table in zip(reel_module.SECTIONS, ranked, strict=True):
+        typer.echo(f"\n{heading} ({kind}, by {_METRIC[kind]})")
+        for r in table.iter_rows(named=True):
+            typer.echo(
+                f"{r['rank']:>3} {r['shot_id']:<20} {r['shooter'][:24]:<24} "
+                f"{_fmt(r[_METRIC[kind]], '.2f'):>6}  {r['headline_es']}"
+            )
+
+
+@reel.command("build")
+def reel_build(
+    out: Annotated[Path, typer.Option("--out", help="Output directory of the reel.")],
+    game: GameOption = None,
+    all_games: AllOption = False,
+    n: Annotated[int, typer.Option("--n", help="Shots per ranking.")] = 10,
+    fps: Annotated[int, typer.Option("--fps", help="Frames per second of the GIFs.")] = 12,
+) -> None:
+    """Render one clip per ranked shot (three rankings) and write index.md."""
+    ids = _reel_games(game, all_games)
+    try:
+        path = reel_module.build_reel(Settings.from_env(), ids, n=n, out_dir=out, fps=fps)
+    except VentajaError as exc:
+        typer.echo(f"error: {exc}", err=True)
+        raise typer.Exit(code=1) from exc
+    count = len(list(path.parent.glob("*.gif")))
+    typer.echo(f"reel -> {path}")
     typer.echo(f"{count} {'GIF' if count == 1 else 'GIFs'} in {path.parent}")
