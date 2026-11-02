@@ -16,6 +16,7 @@ from ventaja.value.params import (
     PROFILE_LATE_SHARE,
     PROFILE_MIN_SHOTS,
     PROFILE_READ_DELTA,
+    PROFILE_SEASON_DELTA,
     PROFILE_ZONE_SHIFT,
 )
 
@@ -97,8 +98,6 @@ _TEXT: dict[Lang, dict[str, str]] = {
     },
 }
 
-_CNS_MIN = 0.6  # catch-and-shoot share of the season that makes him "mostly" a spot-up shooter
-_CONTESTED_MIN = 0.5  # contested share of the season attempts that makes most of them contested
 _CLOCK_MIN_SHOTS = 2  # readable shots a clock bucket needs to be compared
 
 
@@ -160,8 +159,13 @@ def _clock(row: Mapping[str, Any], names: dict[str, str], t: dict[str, str]) -> 
     return t["clock"].format(bucket=names[worst[0]])
 
 
-def _season(row: Mapping[str, Any], zones: dict[str, str], t: dict[str, str]) -> list[str]:
-    """Rule 6: fragments of the season sentence (empty without a season block)."""
+def _season(
+    row: Mapping[str, Any], league: Mapping[str, Any], zones: dict[str, str], t: dict[str, str]
+) -> list[str]:
+    """Rule 6: fragments of the season sentence (empty without a season block).
+
+    The catch-and-shoot and contested clauses compare with the league and need its value.
+    """
     if row.get("season_attempts") is None:
         return []
     out: list[str] = []
@@ -171,12 +175,14 @@ def _season(row: Mapping[str, Any], zones: dict[str, str], t: dict[str, str]) ->
         zone, shift = max(known, key=lambda item: item[1])
         if shift >= PROFILE_ZONE_SHIFT:
             out.append(t["shift"].format(zone=zones[zone]))
-    cns = _num(row, "season_cns_share")
-    if cns is not None and cns >= _CNS_MIN:
-        out.append(t["cns"])
-    contested = _num(row, "season_contested_share")
-    if contested is not None and contested >= _CONTESTED_MIN:
-        out.append(t["contested"])
+    for key, text in (("season_cns_share", "cns"), ("season_contested_share", "contested")):
+        value, reference = _num(row, key), _num(league, key)
+        if (
+            value is not None
+            and reference is not None
+            and value >= reference + PROFILE_SEASON_DELTA
+        ):
+            out.append(t[text])
     return out
 
 
@@ -210,7 +216,7 @@ def profile_phrase(row: Mapping[str, Any], league: Mapping[str, Any], *, lang: L
         if f
     ]
     sentences = [_sentence(first)] if first else []
-    season = _season(row, zones, t)
+    season = _season(row, league, zones, t)
     if season:
         sentences.append(_sentence(season))
     return " ".join(sentences) if sentences else _sentence([t["none"]])

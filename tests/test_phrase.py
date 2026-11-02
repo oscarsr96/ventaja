@@ -30,7 +30,13 @@ BANNED = (
     "selfish",
 )
 
-LEAGUE: dict[str, Any] = {"mean_cost": 0.2, "good_read_share": 0.4, "late_held_share": 0.15}
+LEAGUE: dict[str, Any] = {
+    "mean_cost": 0.2,
+    "good_read_share": 0.4,
+    "late_held_share": 0.15,
+    "season_cns_share": 0.45,
+    "season_contested_share": 0.65,
+}
 
 
 def row_with(season: bool = False, **overrides: Any) -> dict[str, Any]:
@@ -130,7 +136,7 @@ def test_season_sentence_zone_shift() -> None:
     text = profile_phrase(row, LEAGUE)
     assert text.count(".") == 2
     assert "En estos partidos tira más desde esquina que en su temporada." in text
-    row = row_with(season=True, season_cns_share=0.65, season_contested_share=0.55)
+    row = row_with(season=True, season_cns_share=0.56, season_contested_share=0.76)
     text = profile_phrase(row, LEAGUE)
     assert "Es sobre todo un tirador tras recepción" in text
     assert "la mayoría de sus tiros de temporada son con mano encima" in text
@@ -216,3 +222,25 @@ def test_banned_words_never_appear() -> None:
 def test_never_empty(lang: str) -> None:
     empty = {"n_readable": 12}
     assert profile_phrase(empty, LEAGUE, lang=lang)  # type: ignore[arg-type]
+
+
+def test_season_clauses_relative_to_league() -> None:
+    below = row_with(season=True, season_cns_share=0.54, season_contested_share=0.74)
+    assert profile_phrase(below, LEAGUE) == "Decide en la media de la liga."
+    edge = row_with(season=True, season_cns_share=0.56, season_contested_share=0.5)
+    text = profile_phrase(edge, LEAGUE)
+    assert "tirador tras recepción" in text and "mano encima" not in text
+    high = row_with(season=True, season_cns_share=0.99, season_contested_share=0.99)
+    for league in ({}, {**LEAGUE, "season_cns_share": None, "season_contested_share": None}):
+        text = profile_phrase(high, league)
+        assert "tirador tras recepción" not in text and "mano encima" not in text
+
+
+def test_exact_two_fragment_sentence() -> None:
+    row = row_with(mean_cost=0.3, ignored_alt="post", n_alt_post=4)
+    assert profile_phrase(row, LEAGUE) == (
+        "Suele tener un pase mejor disponible; la opción que más deja pasar es el poste."
+    )
+    assert profile_phrase(row, LEAGUE, lang="en") == (
+        "Usually has a better pass available; the option he most often leaves is the post."
+    )

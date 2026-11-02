@@ -93,3 +93,5 @@ PROFILE_READ_DELTA = 0.08  # share of good reads over the league for "picks the 
 PROFILE_LATE_SHARE = 0.25  # share of lost moments held to the decision, among shots with a curve
 PROFILE_ALT_MIN = 3  # decisions needed to name the alternative the player most often leaves
 PROFILE_ZONE_SHIFT = 0.15  # change of zone mix against the season that is worth mentioning
+# share of catch-and-shoot / contested season attempts over the league that is worth mentioning
+PROFILE_SEASON_DELTA = 0.10
