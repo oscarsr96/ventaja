@@ -16,7 +16,13 @@ __all__ = [
     "COURT_WIDTH",
     "FPS",
     "HALF_LENGTH",
+    "CORNER_X_MAX",
+    "CORNER_Y",
+    "FAR_DISTANCE",
     "HOOP",
+    "KEY_HALF_WIDTH",
+    "KEY_X_MAX",
+    "RA_RADIUS",
     "THREE_POINT_RADIUS",
     "distance_to_hoop",
     "orient_frame",
@@ -27,7 +33,14 @@ HOOP: tuple[float, float] = (-40.7, 0.0)
 COURT_LENGTH = 91.86
 COURT_WIDTH = 49.21
 HALF_LENGTH = 45.93
-THREE_POINT_RADIUS = 22.15
+THREE_POINT_RADIUS = 22.15  # FIBA arc radius 6.75 m
+# FIBA zone geometry (feet), offense frame with the baseline at x = -HALF_LENGTH (-45.93).
+RA_RADIUS = 4.10  # restricted-area arc, 1.25 m from the hoop centre
+KEY_HALF_WIDTH = 8.04  # key half-width, 2.45 m
+KEY_X_MAX = -26.90  # free-throw line, 5.80 m from the baseline: -45.93 + 19.03
+CORNER_Y = 21.65  # corner three line, 0.90 m from the sideline: 6.60 m from the centre line
+CORNER_X_MAX = -36.02  # where the 22.15 ft arc meets |y| = CORNER_Y
+FAR_DISTANCE = 35.0  # beyond this the shot is a heave, not a half-court shot
 
 
 def orient_to_offense(x: float, y: float, left_hoop: bool) -> tuple[float, float]:

@@ -20,3 +20,6 @@ JUMP_SHOT_TYPES = (
 FINISH_TYPES = ("layup", "dunk", "hook", "lob", "floater")
 # Shot types that carry no decision.
 EXCLUDED_TYPES = ("tip",)
+
+# Prior shrinkage strength: pseudo-attempts at the league rate added to a player's record.
+K_SHRINK = 20
