@@ -173,3 +173,19 @@ def frame_range(game_id: int, settings: Settings) -> tuple[int, int]:
         .row(0)
     )
     return int(row[0]), int(row[1])
+
+
+def load_meta(table: str, settings: Settings) -> pl.DataFrame:
+    """One built metadata table (``games``, ``players`` or ``matches``)."""
+    path = settings.meta_parquet(table)
+    if not path.exists():
+        raise DataNotFoundError(f"{path} not found; run `ventaja data build --game ID` first")
+    return pl.read_parquet(path)
+
+
+def load_aggregates(name: str, settings: Settings) -> pl.DataFrame:
+    """One built season-aggregate table (``shots``, ``drives`` or ``picks``)."""
+    path = settings.aggregates_parquet(name)
+    if not path.exists():
+        raise DataNotFoundError(f"{path} not found; run `ventaja data build --game ID` first")
+    return pl.read_parquet(path)

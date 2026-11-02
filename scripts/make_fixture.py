@@ -43,6 +43,10 @@ def main(
     kept = [m for m in matches if m.get("id") == game_id]
     (out_dir / "matches.json").write_text(json.dumps(kept))
 
+    shots_agg = Path("aggregates") / "acb_shotsaggregates_20252026.csv"
+    (out_dir / shots_agg).parent.mkdir(parents=True, exist_ok=True)
+    shutil.copyfile(source_data_dir / shots_agg, out_dir / shots_agg)
+
     tracking_name = f"{game_id}_tracking_data.jsonl.gz"
     with (
         gzip.open(src_game / tracking_name, "rt") as src,

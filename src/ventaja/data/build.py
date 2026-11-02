@@ -13,6 +13,8 @@ from ventaja.config import Settings
 from ventaja.data.load import (
     apply_aliases,
     load_aliases,
+    load_game,
+    load_matches,
     pull_hint,
     read_raw_json,
     require_raw,
@@ -63,6 +65,42 @@ TRACKING_SCHEMA = pl.Schema(
     }
 )
 TRACKING_BATCH_FRAMES = 50_000
+
+AGGREGATE_TABLES: tuple[str, ...] = ("shots", "drives", "picks")
+AGGREGATES_DIR = "aggregates"
+AGGREGATES_SEASON = "20252026"
+
+GAMES_SCHEMA = pl.Schema(
+    {
+        "game_id": pl.Int64(),
+        "date": pl.Datetime("us", "UTC"),
+        "season": pl.String(),
+        "home_team_id": pl.Int64(),
+        "home_team_name": pl.String(),
+        "away_team_id": pl.Int64(),
+        "away_team_name": pl.String(),
+    }
+)
+PLAYERS_SCHEMA = pl.Schema(
+    {
+        "game_id": pl.Int64(),
+        "team_id": pl.Int64(),
+        "player_id": pl.Int64(),
+        "first_name": pl.String(),
+        "last_name": pl.String(),
+        "jersey": pl.String(),
+    }
+)
+MATCHES_SCHEMA = pl.Schema(
+    {
+        "game_id": pl.Int64(),
+        "date_time": pl.Datetime("us", "UTC"),
+        "home_team_id": pl.Int64(),
+        "away_team_id": pl.Int64(),
+        "home_score": pl.Int64(),
+        "away_score": pl.Int64(),
+    }
+)
 
 _CAMEL_BOUNDARY = re.compile(r"(?<!^)(?=[A-Z])")
 
@@ -209,4 +247,85 @@ def build_tracking(game_id: int, settings: Settings) -> Path:
         ) from exc
     out.parent.mkdir(parents=True, exist_ok=True)
     pl.concat(batches).write_parquet(out)
+    return out
+
+
+def _write_parquet_atomic(df: pl.DataFrame, path: Path) -> None:
+    """Write ``df`` to a ``.tmp`` sibling and rename it, so readers never see a partial file."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_name(path.name + ".tmp")
+    df.write_parquet(tmp)
+    tmp.replace(path)
+
+
+def _accumulate(new: pl.DataFrame, path: Path, game_id: int) -> pl.DataFrame:
+    """``new`` appended to the rows already at ``path`` for other games (idempotent per game)."""
+    if not path.exists():
+        return new
+    kept = pl.read_parquet(path).filter(pl.col("game_id") != game_id)
+    return pl.concat([kept, new]).sort("game_id")
+
+
+def build_meta(game_id: int, settings: Settings) -> dict[str, Path]:
+    """Write the ``games``, ``players`` and ``matches`` metadata tables.
+
+    ``games`` and ``players`` accumulate one game at a time: rows of ``game_id`` are replaced,
+    those of other games kept. ``matches`` is rebuilt whole from matches.json. Player ids are
+    canonical. Returns the path written for each table.
+    """
+    game = load_game(game_id, settings)
+    games = pl.DataFrame(
+        [
+            {
+                "game_id": game.game_id,
+                "date": game.date,
+                "season": game.season,
+                "home_team_id": game.home.team_id,
+                "home_team_name": game.home.name,
+                "away_team_id": game.away.team_id,
+                "away_team_name": game.away.name,
+            }
+        ],
+        schema=GAMES_SCHEMA,
+    )
+    players = pl.DataFrame(
+        [
+            {"game_id": game.game_id, "team_id": team.team_id, **p.model_dump()}
+            for team in (game.home, game.away)
+            for p in team.players
+        ],
+        schema=PLAYERS_SCHEMA,
+    )
+    matches = pl.DataFrame([m.model_dump() for m in load_matches(settings)], schema=MATCHES_SCHEMA)
+    out: dict[str, Path] = {}
+    for table, df in (("games", games), ("players", players), ("matches", matches)):
+        path = settings.meta_parquet(table)
+        if table != "matches":
+            df = _accumulate(df, path, game_id)
+        _write_parquet_atomic(df, path)
+        out[table] = path
+    return out
+
+
+def aggregates_csv_relpath(name: str) -> str:
+    """Relative path of a season-aggregate CSV inside data_dir."""
+    return f"{AGGREGATES_DIR}/acb_{name}aggregates_{AGGREGATES_SEASON}.csv"
+
+
+def build_aggregates(settings: Settings) -> dict[str, Path]:
+    """Convert the season-aggregate CSVs present in data_dir to parquet, ids canonical.
+
+    A missing CSV is skipped (it is simply absent from the result). A null ``team_id``
+    (season-total rows of players with several teams) is preserved.
+    """
+    aliases = load_aliases(settings)
+    out: dict[str, Path] = {}
+    for name in AGGREGATE_TABLES:
+        csv = settings.raw_path(aggregates_csv_relpath(name))
+        if not csv.exists():
+            continue
+        df = apply_aliases(pl.read_csv(csv, infer_schema_length=None), aliases)
+        path = settings.aggregates_parquet(name)
+        _write_parquet_atomic(df, path)
+        out[name] = path
     return out

@@ -128,9 +128,17 @@ def data_build(
             if not events_only:
                 path = build_module.build_tracking(game_id, settings)
                 typer.echo(f"wrote {game_id} tracking -> {path}")
+            for table, path in build_module.build_meta(game_id, settings).items():
+                typer.echo(f"meta {game_id} {table} -> {path}")
         except VentajaError as exc:
             typer.echo(f"error: {exc}", err=True)
             raise typer.Exit(code=1) from exc
+    aggregates = build_module.build_aggregates(settings)
+    for name in build_module.AGGREGATE_TABLES:
+        if name in aggregates:
+            typer.echo(f"aggregate {name} -> {aggregates[name]}")
+        else:
+            typer.echo(f"skip aggregate {name} (no CSV in {settings.raw_path('aggregates')})")
 
 
 def _unique(names: list[str]) -> list[str]:
