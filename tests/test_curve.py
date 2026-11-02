@@ -18,16 +18,18 @@ NO_TYPE_ID = "shot-114243-1-2"
 
 
 def _curve(a: Aligner, shot_id: str, priors: Priors, model: ValueModel) -> pl.DataFrame:
-    c = possession_curve(a, shot_id, priors, model)
-    assert c is not None
-    return c
+    result = possession_curve(a, shot_id, priors, model)
+    assert result is not None
+    return result.curve
 
 
 def test_curve_rows_and_release_present(
     built_fixture: Settings, fixture_priors: Priors, trained_fixture_model: ValueModel
 ) -> None:
     a = Aligner(114243, built_fixture)
-    c = _curve(a, SHOT_ID, fixture_priors, trained_fixture_model)
+    result = possession_curve(a, SHOT_ID, fixture_priors, trained_fixture_model)
+    assert result is not None and result.skipped_off_court == 0
+    c = result.curve
     assert c["frame_idx"].to_list() == list(range(3820, 3896, 5))  # every tracked step frame
     assert (c["frame_idx"] % 5 == 3895 % 5).all()
     assert c.filter(pl.col("frame_idx") == 3895)["handler_id"][0] == 35028
@@ -116,28 +118,39 @@ def test_curve_skips_frames_with_handler_off_court(
         .otherwise(pl.col("player_id"))
     )
     monkeypatch.setattr(a, "touches_of", lambda possession_id: touches)
-    frames = _curve(a, SHOT_ID, fixture_priors, trained_fixture_model)["frame_idx"].to_list()
-    assert frames == [3820, 3825, 3830, *range(3855, 3896, 5)]  # 3835-3850 skipped
+    result = possession_curve(a, SHOT_ID, fixture_priors, trained_fixture_model)
+    assert result is not None and result.skipped_off_court == 4  # 3835-3850
+    frames = result.curve["frame_idx"].to_list()
+    assert frames == [3820, 3825, 3830, *range(3855, 3896, 5)]
 
 
 def _summary_curve(values: list[float]) -> pl.DataFrame:
+    n = len(values)
     return pl.DataFrame(
-        {"frame_idx": [100 + 5 * i for i in range(len(values))], "best_value": values}
+        {
+            "frame_idx": [100 + 5 * i for i in range(n)],
+            "handler_id": [7 if i % 2 else 8 for i in range(n)],
+            "best_value": values,
+        }
     )
 
 
-def _summarize(values: list[float], decision_frame: int) -> CurveSummary:
+def _summarize(values: list[float], decision_frame: int, shot_value: float = 0.8) -> CurveSummary:
     return summarize_curve(
         _summary_curve(values),
         shot_id="shot-1-1-0",
         game_id=1,
         decision_frame=decision_frame,
-        shot_value=0.85,
+        shot_value=shot_value,
     )
 
 
+# frames:    100  105  110  115  120  125   (advantage: best_value >= 0.8 + 0.10)
+LATE = [0.5, 1.2, 1.3, 1.0, 0.6, 0.7]
+
+
 def test_summary_late() -> None:
-    s = _summarize([0.8, 1.2, 1.25, 1.2, 0.9, 0.85], 125)
+    s = _summarize(LATE, 125)
     assert (s.shot_id, s.game_id, s.n_rows, s.span_start, s.span_end) == (
         "shot-1-1-0",
         1,
@@ -145,43 +158,72 @@ def test_summary_late() -> None:
         100,
         125,
     )
-    assert (s.peak_frame, s.peak_value) == (110, 1.25)
-    assert (s.window_start, s.window_end) == (105, 115)
+    assert (s.window_start, s.window_end) == (105, 115)  # 120 drops out of the run
+    assert (s.window_handler_id, s.window_peak_value) == (8, 1.3)
     assert s.advantage_seconds == pytest.approx(0.6)
     assert s.verdict == "late" and s.release_lag_seconds == pytest.approx(0.4)
-    assert s.value_at_decision == 0.85 and s.shot_value == 0.85
+    assert (s.peak_frame, s.peak_value) == (110, 1.3)
+    assert s.value_at_decision == 0.7 and s.shot_value == 0.8
 
 
-def test_summary_on_time() -> None:
-    s = _summarize([0.8, 1.2, 1.25, 1.2, 0.9, 0.85], 112)
-    assert s.verdict == "on_time" and s.release_lag_seconds == 0.0
-    assert s.value_at_decision == 1.25  # 112 is closest to 110
+def test_summary_during() -> None:
+    s = _summarize(LATE, 112)
+    assert s.verdict == "during" and s.release_lag_seconds == 0.0
+    assert (s.window_start, s.window_end) == (105, 115)
+    assert s.value_at_decision == 1.3  # 112 is closest to 110
 
 
-def test_summary_early() -> None:
-    s = _summarize([0.8, 1.2, 1.25, 1.2, 0.9, 0.85], 101)
-    assert s.verdict == "early" and s.release_lag_seconds == pytest.approx(-0.16)
-    assert s.value_at_decision == 0.8
+def test_summary_during_at_run_start() -> None:
+    s = _summarize(LATE, 105)
+    assert s.verdict == "during" and (s.window_start, s.window_end) == (105, 115)
 
 
-def test_summary_peak_tie_takes_earlier_and_single_row_window() -> None:
-    s = _summarize([1.0, 0.5, 1.0, 0.5], 107)
-    assert s.peak_frame == 100 and (s.window_start, s.window_end) == (100, 100)
-    assert s.advantage_seconds == pytest.approx(0.2)  # a single-row window lasts one step
+def test_summary_none_when_advantage_only_after_decision() -> None:
+    s = _summarize(LATE, 101)
+    assert s.verdict == "none" and s.release_lag_seconds is None
+    assert s.advantage_seconds == 0.0
+    assert s.window_start is None and s.window_end is None
+    assert s.window_handler_id is None and s.window_peak_value is None
+    assert (s.peak_frame, s.peak_value) == (110, 1.3)  # global descriptors stay
+    assert s.value_at_decision == 0.5
+
+
+def test_summary_none_when_nothing_beats_the_shot() -> None:
+    s = _summarize([0.85, 0.89, 0.7, 0.6], 115)  # 0.89 < 0.8 + 0.10
+    assert s.verdict == "none" and s.advantage_seconds == 0.0
+
+
+def test_summary_last_run_before_decision_counts() -> None:
+    # runs 100-105 and 115-120; a third run at 130 starts after the decision frame
+    s = _summarize([1.5, 1.0, 0.5, 1.1, 0.95, 0.5, 2.0], 127)
+    assert (s.window_start, s.window_end) == (115, 120)
+    assert (s.window_handler_id, s.window_peak_value) == (7, 1.1)
+    assert s.advantage_seconds == pytest.approx(0.4)
     assert s.verdict == "late" and s.release_lag_seconds == pytest.approx(0.28)
+    assert (s.peak_frame, s.peak_value) == (130, 2.0)
+
+
+def test_summary_single_row_run_and_peak_tie() -> None:
+    s = _summarize([1.0, 0.5, 1.0, 0.5], 107)
+    assert (s.window_start, s.window_end) == (100, 100)
+    assert s.advantage_seconds == pytest.approx(0.2)  # a single-row run lasts one step
+    assert s.verdict == "late" and s.release_lag_seconds == pytest.approx(0.28)
+    assert s.peak_frame == 100  # global peak tie takes the earliest row
     assert s.value_at_decision == 0.5  # 107 is closest to 105
 
 
+def test_summary_window_handler_tie_takes_earlier() -> None:
+    s = _summarize([1.2, 1.2, 0.5], 110)
+    assert s.window_handler_id == 8 and s.window_peak_value == 1.2
+
+
 def test_summary_value_at_decision_tie_takes_earlier() -> None:
-    curve = pl.DataFrame({"frame_idx": [100, 110, 115], "best_value": [0.3, 1.0, 0.9]})
+    curve = pl.DataFrame(
+        {"frame_idx": [100, 110, 115], "handler_id": [1, 2, 3], "best_value": [0.3, 1.0, 0.9]}
+    )
     s = summarize_curve(curve, shot_id="s", game_id=1, decision_frame=105, shot_value=0.5)
     assert s.value_at_decision == 0.3  # 105 is 5 from both 100 and 110
-    assert s.verdict == "early"
-
-
-def test_summary_window_stops_at_first_drop() -> None:
-    s = _summarize([1.0, 1.0, 0.5, 1.0, 1.0], 120)  # two plateaus, peak on the first
-    assert (s.window_start, s.window_end) == (100, 105)
+    assert s.verdict == "none"  # the only run starts at 110, after the decision
 
 
 def test_summary_no_window() -> None:
@@ -190,11 +232,14 @@ def test_summary_no_window() -> None:
     assert (s.span_start, s.span_end) == (100, 105)
     assert s.peak_frame is None and s.peak_value is None
     assert s.window_start is None and s.window_end is None
+    assert s.window_handler_id is None and s.window_peak_value is None
     assert s.release_lag_seconds is None and s.value_at_decision is None
 
 
 def test_summary_empty_curve() -> None:
-    empty = pl.DataFrame(schema={"frame_idx": pl.Int64, "best_value": pl.Float64})
+    empty = pl.DataFrame(
+        schema={"frame_idx": pl.Int64, "handler_id": pl.Int64, "best_value": pl.Float64}
+    )
     s = summarize_curve(empty, shot_id="s", game_id=1, decision_frame=10, shot_value=0.5)
     assert s.verdict == "no_window" and s.n_rows == 0
     assert s.span_start is None and s.span_end is None
@@ -205,12 +250,12 @@ def test_summary_of_fixture_curve(
 ) -> None:
     a = Aligner(114243, built_fixture)
     c = _curve(a, SHOT_ID, fixture_priors, trained_fixture_model)
-    s = summarize_curve(c, shot_id=SHOT_ID, game_id=114243, decision_frame=3885, shot_value=0.9)
+    s = summarize_curve(c, shot_id=SHOT_ID, game_id=114243, decision_frame=3885, shot_value=0.0)
     assert s.n_rows == 16 and (s.span_start, s.span_end) == (3820, 3895)
-    assert s.verdict in ("on_time", "late", "early")
-    start, peak, end = s.window_start, s.peak_frame, s.window_end
-    assert start is not None and peak is not None and end is not None
-    assert start <= peak <= end
+    assert s.verdict == "during"  # every option beats a zero-value shot: one run, whole curve
+    assert (s.window_start, s.window_end) == (3820, 3895)
+    assert s.window_peak_value == s.peak_value
+    assert s.window_handler_id == c.filter(pl.col("frame_idx") == s.peak_frame)["handler_id"][0]
 
 
 def _make(verdict: str, advantage: float, lag: float | None, n_rows: int = 6) -> CurveSummary:
@@ -225,6 +270,8 @@ def _make(verdict: str, advantage: float, lag: float | None, n_rows: int = 6) ->
             "peak_value": None,
             "window_start": None,
             "window_end": None,
+            "window_handler_id": None,
+            "window_peak_value": None if verdict != "during" else 1.234,
             "advantage_seconds": advantage,
             "release_lag_seconds": lag,
             "value_at_decision": None,
@@ -235,13 +282,17 @@ def _make(verdict: str, advantage: float, lag: float | None, n_rows: int = 6) ->
 
 
 def test_headline_es_en() -> None:
-    on_time, late = _make("on_time", 0.6, 0.0), _make("late", 0.6, 0.4)
-    early, none = _make("early", 0.6, -0.36), _make("no_window", 0.0, None, n_rows=2)
-    assert headline(on_time) == "La ventaja duró 0.6 s y el tiro llegó a tiempo"
-    assert headline(late) == "La ventaja duró 0.6 s; el tiro llegó 0.4 s tarde"
-    assert headline(early) == "El tiro salió 0.4 s antes del pico de ventaja"
-    assert headline(none) == "Sin curva suficiente (2 frames)"
-    assert headline(on_time, "en") == "The advantage lasted 0.6 s and the shot came on time"
-    assert headline(late, "en") == "The advantage lasted 0.6 s; the shot came 0.4 s late"
-    assert headline(early, "en") == "The shot went up 0.4 s before the peak of advantage"
-    assert headline(none, "en") == "Not enough curve (2 frames)"
+    late, during = _make("late", 0.6, 0.36), _make("during", 0.8, 0.0)
+    none, short = _make("none", 0.0, None), _make("no_window", 0.0, None, n_rows=2)
+    assert headline(late) == "La ventaja duró 0.6 s y se esfumó 0.4 s antes del tiro"
+    assert headline(during) == (
+        "Había una opción mejor en el instante del tiro (+0.33 pts, abierta 0.8 s)"
+    )
+    assert headline(none) == "No hubo mejor opción que el tiro en la posesión"
+    assert headline(short) == "Sin curva suficiente (2 frames)"
+    assert headline(late, "en") == "The advantage lasted 0.6 s and vanished 0.4 s before the shot"
+    assert headline(during, "en") == (
+        "A better option was open at the shot (+0.33 pts, open for 0.8 s)"
+    )
+    assert headline(none, "en") == "Nothing beat the shot during the possession"
+    assert headline(short, "en") == "Not enough curve (2 frames)"

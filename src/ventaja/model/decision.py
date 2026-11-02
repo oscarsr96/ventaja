@@ -68,18 +68,21 @@ class Decision(_Frozen):
     options: list[Option]
 
 
-Verdict = Literal["on_time", "late", "early", "no_window"]
+Verdict = Literal["late", "during", "none", "no_window"]
 
 
 class CurveSummary(_Frozen):
-    """The advantage window of a possession curve against the shot's decision frame.
+    """The advantage window of a possession curve, relative to the shot taken.
 
-    ``span_start``/``span_end`` are the first and last sampled frames of the curve (None when
-    it is empty). The window is the contiguous run of rows around the peak whose
-    ``best_value`` stays within ``ADVANTAGE_TOLERANCE`` of it. ``release_lag_seconds`` is 0.0
-    when the decision frame falls inside the window, positive when it comes after (``late``)
-    and negative when before (``early``). With fewer than ``CURVE_MIN_ROWS`` rows the verdict
-    is ``no_window``, the optional fields are None and ``advantage_seconds`` is 0.0.
+    A curve row is advantage when ``best_value >= shot_value + ADVANTAGE_TOLERANCE``;
+    consecutive advantage rows form runs and the summary keeps the last run that starts at or
+    before the decision frame. ``late``: that run ended before the decision frame
+    (``release_lag_seconds > 0``); ``during``: the decision frame lies inside it (lag 0.0);
+    ``none``: no advantage row at or before the decision frame (window fields None,
+    ``advantage_seconds`` 0.0). With fewer than ``CURVE_MIN_ROWS`` rows the verdict is
+    ``no_window`` and every optional field is None. ``peak_frame``/``peak_value`` describe the
+    whole curve; ``window_handler_id``/``window_peak_value`` the best row of the kept run.
+    ``span_start``/``span_end`` are the first and last sampled frames (None when empty).
     """
 
     shot_id: str
@@ -91,6 +94,8 @@ class CurveSummary(_Frozen):
     peak_value: float | None
     window_start: int | None
     window_end: int | None
+    window_handler_id: int | None
+    window_peak_value: float | None
     advantage_seconds: float
     release_lag_seconds: float | None
     value_at_decision: float | None

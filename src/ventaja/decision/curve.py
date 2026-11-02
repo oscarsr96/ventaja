@@ -6,6 +6,7 @@ release, for whoever holds the ball, and the summary reads how long the advantag
 whether the shot came while it was there.
 """
 
+from dataclasses import dataclass
 from typing import Any, Literal
 
 import polars as pl
@@ -22,7 +23,7 @@ from ventaja.value.model import ValueModel
 from ventaja.value.params import ADVANTAGE_TOLERANCE, CURVE_MIN_ROWS, CURVE_STEP_FRAMES
 from ventaja.value.priors import Priors
 
-__all__ = ["CURVE_SCHEMA", "headline", "possession_curve", "summarize_curve"]
+__all__ = ["CURVE_SCHEMA", "CurveResult", "headline", "possession_curve", "summarize_curve"]
 
 CURVE_SCHEMA: dict[str, Any] = {
     "shot_id": pl.String,
@@ -38,6 +39,14 @@ CURVE_SCHEMA: dict[str, Any] = {
     "best_alt_type": pl.String,  # null when the best option is the shot
     "n_viable": pl.Int64,  # passes with viability > 0
 }
+
+
+@dataclass(frozen=True)
+class CurveResult:
+    """A possession curve and how many sampled frames were skipped (handler off court)."""
+
+    curve: pl.DataFrame
+    skipped_off_court: int
 
 
 def _frame_row(
@@ -76,14 +85,15 @@ def _frame_row(
 
 def possession_curve(
     aligner: Aligner, shot_id: str, priors: Priors, model: ValueModel
-) -> pl.DataFrame | None:
+) -> CurveResult | None:
     """One row per sampled frame of the shot's chance, from frontcourt entry to release.
 
     The span runs from the chance's ``frontcourt_frame`` (its ``start_frame`` when null) to
     the shot's release, inclusive. Frames ``release - k * CURVE_STEP_FRAMES`` are sampled, so
     the release is always on the curve; a sampled frame is absent when it has no tracking,
-    the ball is in flight (no handler) or the handler is not on court. Columns follow
-    ``CURVE_SCHEMA``. Returns None when the shot's decision frame is excluded.
+    the ball is in flight (no handler) or the handler is not on court (counted in
+    ``skipped_off_court``). Columns follow ``CURVE_SCHEMA``. Returns None when the shot's
+    decision frame is excluded.
     """
     if aligner.decision_frame(shot_id).rule == "excluded":
         return None
@@ -95,6 +105,7 @@ def possession_curve(
     handler = BallHandler(aligner.touches_of(shot["possession_id"]))
     snapshots = {s.frame_idx: s for s in aligner.window(span_start, release)}
     rows: list[dict[str, Any]] = []
+    skipped = 0
     for frame_idx in range(release, span_start - 1, -CURVE_STEP_FRAMES):
         snapshot = snapshots.get(frame_idx)
         handler_id = handler.handler_at(frame_idx)
@@ -103,6 +114,7 @@ def possession_curve(
         try:
             row = _frame_row(snapshot, handler_id, priors, model)
         except VentajaError:  # handler not tracked in this frame
+            skipped += 1
             continue
         rows.append(
             {
@@ -113,74 +125,98 @@ def possession_curve(
                 **row,
             }
         )
-    return pl.DataFrame(rows[::-1], schema=CURVE_SCHEMA)
+    return CurveResult(pl.DataFrame(rows[::-1], schema=CURVE_SCHEMA), skipped)
+
+
+def _runs(flags: list[bool]) -> list[tuple[int, int]]:
+    """``(first, last)`` row indices of each run of consecutive True flags."""
+    runs: list[tuple[int, int]] = []
+    for i, flag in enumerate(flags):
+        if not flag:
+            continue
+        if runs and runs[-1][1] == i - 1:
+            runs[-1] = (runs[-1][0], i)
+        else:
+            runs.append((i, i))
+    return runs
 
 
 def summarize_curve(
     curve: pl.DataFrame, *, shot_id: str, game_id: int, decision_frame: int, shot_value: float
 ) -> CurveSummary:
-    """Advantage window of a curve (sorted by ``frame_idx``) against the decision frame."""
+    """Advantage window of a curve (sorted by ``frame_idx``), relative to the shot taken.
+
+    A row is advantage when ``best_value >= shot_value + ADVANTAGE_TOLERANCE``. Runs are
+    consecutive curve rows (frames absent from the curve do not break a run); the last run
+    starting at or before ``decision_frame`` is kept. See ``CurveSummary`` for the verdicts.
+    """
     frames = [int(f) for f in curve["frame_idx"]]
     values = [float(v) for v in curve["best_value"]]
-    base: dict[str, Any] = {
+    handlers = [int(h) for h in curve["handler_id"]]
+    out: dict[str, Any] = {
         "shot_id": shot_id,
         "game_id": game_id,
         "n_rows": len(frames),
         "span_start": frames[0] if frames else None,
         "span_end": frames[-1] if frames else None,
         "shot_value": shot_value,
+        "peak_frame": None,
+        "peak_value": None,
+        "window_start": None,
+        "window_end": None,
+        "window_handler_id": None,
+        "window_peak_value": None,
+        "advantage_seconds": 0.0,
+        "release_lag_seconds": None,
+        "value_at_decision": None,
+        "verdict": "no_window",
     }
     if len(frames) < CURVE_MIN_ROWS:
-        return CurveSummary(
-            **base,
-            peak_frame=None,
-            peak_value=None,
-            window_start=None,
-            window_end=None,
-            advantage_seconds=0.0,
-            release_lag_seconds=None,
-            value_at_decision=None,
-            verdict="no_window",
-        )
+        return CurveSummary(**out)
     peak = values.index(max(values))  # first maximum: ties take the earliest row
-    floor = values[peak] - ADVANTAGE_TOLERANCE
-    lo = hi = peak
-    while lo > 0 and values[lo - 1] >= floor:
-        lo -= 1
-    while hi < len(values) - 1 and values[hi + 1] >= floor:
-        hi += 1
-    start, end = frames[lo], frames[hi]
-    lag = 0.0
-    verdict: Literal["on_time", "late", "early"] = "on_time"
-    if decision_frame > end:
-        lag, verdict = (decision_frame - end) / FPS, "late"
-    elif decision_frame < start:
-        lag, verdict = (decision_frame - start) / FPS, "early"
     closest = min(range(len(frames)), key=lambda i: abs(frames[i] - decision_frame))
-    return CurveSummary(
-        **base,
-        peak_frame=frames[peak],
-        peak_value=values[peak],
-        window_start=start,
-        window_end=end,
-        advantage_seconds=(end - start + CURVE_STEP_FRAMES) / FPS,
-        release_lag_seconds=lag,
-        value_at_decision=values[closest],
-        verdict=verdict,
-    )
+    out |= {
+        "peak_frame": frames[peak],
+        "peak_value": values[peak],
+        "value_at_decision": values[closest],
+        "verdict": "none",
+    }
+    runs = [
+        r
+        for r in _runs([v >= shot_value + ADVANTAGE_TOLERANCE for v in values])
+        if frames[r[0]] <= decision_frame
+    ]
+    if not runs:
+        return CurveSummary(**out)
+    lo, hi = runs[-1]
+    best = max(range(lo, hi + 1), key=lambda i: values[i])  # first maximum on ties
+    start, end = frames[lo], frames[hi]
+    late = end < decision_frame
+    out |= {
+        "window_start": start,
+        "window_end": end,
+        "window_handler_id": handlers[best],
+        "window_peak_value": values[best],
+        "advantage_seconds": (end - start + CURVE_STEP_FRAMES) / FPS,
+        "release_lag_seconds": (decision_frame - end) / FPS if late else 0.0,
+        "verdict": "late" if late else "during",
+    }
+    return CurveSummary(**out)
 
 
 _HEADLINES = {
     "es": {
-        "on_time": "La ventaja duró {a:.1f} s y el tiro llegó a tiempo",
-        "late": "La ventaja duró {a:.1f} s; el tiro llegó {lag:.1f} s tarde",
-        "early": "El tiro salió {early:.1f} s antes del pico de ventaja",
+        "late": "La ventaja duró {a:.1f} s y se esfumó {lag:.1f} s antes del tiro",
+        "during": (
+            "Había una opción mejor en el instante del tiro (+{d:.2f} pts, abierta {a:.1f} s)"
+        ),
+        "none": "No hubo mejor opción que el tiro en la posesión",
         "no_window": "Sin curva suficiente ({n} frames)",
     },
     "en": {
-        "on_time": "The advantage lasted {a:.1f} s and the shot came on time",
-        "late": "The advantage lasted {a:.1f} s; the shot came {lag:.1f} s late",
-        "early": "The shot went up {early:.1f} s before the peak of advantage",
+        "late": "The advantage lasted {a:.1f} s and vanished {lag:.1f} s before the shot",
+        "during": "A better option was open at the shot (+{d:.2f} pts, open for {a:.1f} s)",
+        "none": "Nothing beat the shot during the possession",
         "no_window": "Not enough curve ({n} frames)",
     },
 }
@@ -188,7 +224,10 @@ _HEADLINES = {
 
 def headline(summary: CurveSummary, lang: Literal["es", "en"] = "es") -> str:
     """One-sentence reading of a curve summary, in Spanish or English."""
-    lag = summary.release_lag_seconds or 0.0
+    edge = (summary.window_peak_value or 0.0) - summary.shot_value
     return _HEADLINES[lang][summary.verdict].format(
-        a=summary.advantage_seconds, lag=lag, early=-lag, n=summary.n_rows
+        a=summary.advantage_seconds,
+        lag=summary.release_lag_seconds or 0.0,
+        d=edge,
+        n=summary.n_rows,
     )
