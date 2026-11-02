@@ -125,7 +125,7 @@ def test_build_decisions_has_one_row_per_shot(
     assert df.height == 159
     excluded = df.filter(pl.col("rule") == "excluded")
     assert excluded["reason"].is_not_null().all()
-    assert excluded.height == 159 - 16
+    assert excluded.height == 159 - 17
     assert excluded["cost"].is_null().all() and excluded["decision_frame"].is_null().all()
     assert excluded["release_frame"].is_not_null().all()
     assert excluded["shooter_id"].is_not_null().all()
@@ -134,7 +134,7 @@ def test_build_decisions_has_one_row_per_shot(
     assert "options" not in df.columns
     assert df.filter(pl.col("shot_id") == SHOT_ID)["release_frame"].item() == 3895
     counts = dict(excluded.group_by("reason").len().iter_rows())
-    assert counts == {"no_tracking": 125, "no_touch": 14, "no_type": 3, "tip": 1}
+    assert counts == {"no_tracking": 124, "no_touch": 14, "no_type": 3, "tip": 1}
 
 
 def test_build_decisions_writes_options(
@@ -144,12 +144,12 @@ def test_build_decisions_writes_options(
     path = built_fixture.decisions_options_parquet(114243)
     assert path == built_fixture.build_dir / "decisions" / "114243.options.parquet"
     opts = pl.read_parquet(path)
-    assert opts.height == 16 * 5
-    assert opts.group_by("shot_id").len()["len"].to_list() == [5] * 16
+    assert opts.height == 17 * 5
+    assert opts.group_by("shot_id").len()["len"].to_list() == [5] * 17
     for col in ("shot_id", "game_id", "player_id", "adjusted_value", *OPTION_FEATURES):
         assert col in opts.columns
     assert opts.schema["shot_clock"] == pl.Float64
-    assert opts.filter(pl.col("option_type") == "shot")["viability"].to_list() == [1.0] * 16
+    assert opts.filter(pl.col("option_type") == "shot")["viability"].to_list() == [1.0] * 17
 
 
 def test_build_decisions_records_shooter_off_court(
@@ -173,7 +173,7 @@ def test_build_decisions_records_shooter_off_court(
     df = pl.read_parquet(build_decisions(114243, settings, model=trained_fixture_model))
     row = df.filter(pl.col("shot_id") == SHOT_ID).row(0, named=True)
     assert (row["rule"], row["reason"]) == ("excluded", "shooter_off_court")
-    assert df.filter(pl.col("rule") != "excluded").height == 15
+    assert df.filter(pl.col("rule") != "excluded").height == 16
 
 
 def test_load_decisions_fallback_to_artifacts(
@@ -234,7 +234,7 @@ def test_cli_decisions_build_and_show(
         app, ["decisions", "build", "--game", "114243", "--model", str(model_path)]
     )
     assert built.exit_code == 0, built.output
-    assert "valid 16" in built.output and "no_tracking 125" in built.output
+    assert "valid 17" in built.output and "no_tracking 124" in built.output
     assert "good_read" in built.output
     shown = runner.invoke(app, ["decisions", "show", SHOT_ID])
     assert shown.exit_code == 0, shown.output

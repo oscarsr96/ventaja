@@ -4,6 +4,9 @@
 GATHER_FRAMES = 10
 # Frames searched forward when the decision frame has no tracking (ADR-0003).
 NO_TRACKING_LOOKAHEAD = 10
+# Maximum lag of a finish's decision frame before release: 60 frames = 2.4 s, the p90 of
+# the last-dribble-to-release time (ADR-0003, amendment 2026-11-02).
+FINISH_MAX_LAG_FRAMES = 60
 
 # Shots judged at the start of the gather.
 JUMP_SHOT_TYPES = (

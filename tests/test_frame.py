@@ -40,9 +40,16 @@ def test_excluded_without_touch_and_without_tracking(built_fixture: Settings) ->
     assert aligner.decision_frame("shot-114243-1-9").reason == "no_touch"
     # shot-114243-1-2: null type with a touch
     assert aligner.decision_frame("shot-114243-1-2").reason == "no_type"
-    # shot-114243-1-16: layup, touch starts 16045, frames 16045..16055 have no tracking
-    d = aligner.decision_frame("shot-114243-1-16")
+    # shot-114243-1-20: floater outside the fixture's tracking sample
+    d = aligner.decision_frame("shot-114243-1-20")
     assert d.rule == "excluded" and d.frame_idx is None and d.reason == "no_tracking"
+
+
+def test_finish_lag_cap_on_fixture(built_fixture: Settings) -> None:
+    # shot-114243-1-16: layup, release 16144, touch starts 16045 (99 frames before) with no
+    # tracking until later; the cap moves the frame to 16144 - 60 = 16084
+    d = Aligner(114243, built_fixture).decision_frame("shot-114243-1-16")
+    assert d.rule == "touch_start" and d.frame_idx == 16084
 
 
 def test_excluded_rules() -> None:
@@ -66,6 +73,24 @@ def test_dribbles_after_release_are_ignored() -> None:
     assert d.rule == "last_dribble" and d.frame_idx == 100
     d = decision_frame(_shot("layup"), {"start_frame": 80}, [120], lambda f: True)
     assert d.rule == "touch_start" and d.frame_idx == 80
+
+
+def test_finish_lag_is_capped() -> None:
+    # last dribble 100 frames before release -> capped at release - 60, rule unchanged
+    d = decision_frame(_shot("layup", 200), {"start_frame": 50}, [100], lambda f: True)
+    assert d.rule == "last_dribble" and d.frame_idx == 200 - 60
+    # touch start 150 frames before release, no dribbles -> capped as well
+    d = decision_frame(_shot("dunk", 200), {"start_frame": 50}, [], lambda f: True)
+    assert d.rule == "touch_start" and d.frame_idx == 140
+    # within the cap the candidate is kept
+    d = decision_frame(_shot("layup", 200), {"start_frame": 50}, [150], lambda f: True)
+    assert d.frame_idx == 150
+    # the cap applies before the no-tracking lookahead
+    d = decision_frame(_shot("floater", 200), {"start_frame": 50}, [], lambda f: f >= 145)
+    assert d.rule == "touch_start" and d.frame_idx == 145
+    # jump shots are not capped by this rule
+    d = decision_frame(_shot("catchAndShoot", 200), {"start_frame": 50}, [], lambda f: True)
+    assert d.rule == "gather" and d.frame_idx == 190
 
 
 def test_no_tracking_lookahead() -> None:

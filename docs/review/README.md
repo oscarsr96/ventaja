@@ -26,6 +26,8 @@ Cómo leer el GIF: atacantes coloreados por el **valor ajustado** de su opción 
 4. **¿Es creíble la bandera `lane_blocked`?** Se activa en un 59 % de los pases (con un margen de 2 ft en los extremos de la línea) y multiplica la viabilidad por 0,4. En la tabla se ve como `viab 0.40`. ¿De verdad había un defensor en la línea de pase o el pase era jugable?
 5. **¿Son un problema las finalizaciones en transición juzgadas en un último bote lejos del aro?** 16 tiros válidos caen en zona `far`/`backcourt` porque el último bote ocurre lejos y se valoran desde allí. Si aparece alguno en la muestra, ¿tiene sentido evaluar la decisión en ese punto?
 
+6. **¿Es razonable el tope de 2,4 s en finalizaciones?** Desde la enmienda de ADR-0003, una bandeja, mate, gancho, lob o floater nunca se juzga más de 60 frames (2,4 s) antes de la suelta, aunque el último bote o el inicio del toque sean anteriores. En los tiros afectados, ¿el frame congelado cae ya en la decisión de atacar el aro, o el tope corta demasiado pronto (o demasiado tarde)?
+
 ## Cómo se registran las discrepancias
 
 En `docs/review/2026-11-sample/review.md`, cada tiro termina con tres líneas en blanco. Durante la sesión se rellenan así:

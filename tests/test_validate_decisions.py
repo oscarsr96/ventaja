@@ -136,7 +136,7 @@ def test_checks_on_fixture_game(built_fixture: Settings, trained_fixture_model: 
     assert len(result) == 4
     assert all(isinstance(ok, bool) and detail for _, ok, detail in result)
     assert _by_name(result, "prior_moves_value")[0]
-    assert "18/34" in _by_name(result, "excluded_share_below_15pct")[1]
+    assert "18/35" in _by_name(result, "excluded_share_below_15pct")[1]
 
 
 def test_validate_decisions_cli_prints_four_lines(

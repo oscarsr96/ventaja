@@ -10,7 +10,7 @@ La capa 1 valora cada tiro en el momento en que se decide, no en el de la suelta
 
 - Sin `touch_id`, sin tipo o de tipo `tip`: `excluded` (`no_touch`, `no_type`, `tip`).
 - Tiros en suspensión (`JUMP_SHOT_TYPES`): `max(start_frame - GATHER_FRAMES, touch.start_frame)`, regla `gather`. `GATHER_FRAMES = 10` (0,4 s) aproxima el inicio del gather, por debajo de la mediana de 1,12 s de los lanzadores.
-- Finalizaciones (`FINISH_TYPES`: layup, dunk, hook, lob, floater): último bote con `frame <= start_frame` (`last_dribble`); si no hay, `touch.start_frame` (`touch_start`).
+- Finalizaciones (`FINISH_TYPES`: layup, dunk, hook, lob, floater): último bote con `frame <= start_frame` (`last_dribble`); si no hay, `touch.start_frame` (`touch_start`). Desde la enmienda del 2 de noviembre, nunca más de `FINISH_MAX_LAG_FRAMES = 60` frames antes de la suelta (ver abajo).
 - Tipo no listado: `excluded` con `unknown_type:<tipo>`.
 - Si el frame elegido no tiene tracking se avanza hasta `NO_TRACKING_LOOKAHEAD = 10` frames (0,4 s); si ninguno tiene, `excluded` con `no_tracking`.
 
@@ -19,3 +19,9 @@ Todas las constantes viven en `value/params.py` y solo cambian mediante un ADR. 
 ## Consecuencias
 
 Cada tiro tiene un frame de decisión propio y los tiros excluidos se contabilizan con su motivo en lugar de descartarse en silencio. `ventaja snapshot SHOT_ID --decision` permite inspeccionarlo. El coste es que `GATHER_FRAMES` es una aproximación fija y que las finalizaciones sin bote dependen del inicio del toque, que puede ser anterior a la intención real de tirar.
+
+## Enmienda 2026-11-02: tope de retraso en finalizaciones
+
+La regla original no ponía límite al tiempo entre el frame de decisión de una finalización y su suelta. En la revisión final de la capa 1, con el modelo de entonces, 24 de las 649 finalizaciones válidas se juzgaban más de 60 frames (2,4 s) antes de la suelta (12 con `last_dribble` y 12 con `touch_start`), con máximos de 4,1 s (102 frames, `last_dribble`) y 9,3 s (233 frames, `touch_start`). El tiro de mayor coste de toda la muestra, `shot-114243-3-108`, se juzgaba 100 frames antes de soltar el balón: a esa distancia temporal ya no se evalúa la decisión de tirar, sino una jugada anterior (un bote lejano en transición o la recepción en el otro campo).
+
+Decisión: para `FINISH_TYPES`, `frame = max(candidato, start_frame − FINISH_MAX_LAG_FRAMES)`, con `FINISH_MAX_LAG_FRAMES = 60` (2,4 s, el p90 del tiempo entre último bote y suelta citado en el contexto) en `value/params.py`. El candidato sigue siendo el último bote o el inicio del toque y el nombre de la regla no cambia (`last_dribble` / `touch_start`); después se aplica igual que antes la búsqueda de `NO_TRACKING_LOOKAHEAD` frames si el frame no tiene tracking. Los tiros en suspensión no cambian: su retraso ya está acotado por `GATHER_FRAMES`. El tope es una aproximación más que se revisa en la sesión en vivo (pregunta 6 de `docs/review/README.md`).

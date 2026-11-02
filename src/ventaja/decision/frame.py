@@ -6,6 +6,7 @@ from typing import Any
 from ventaja.model.decision import DecisionFrame, Rule
 from ventaja.value.params import (
     EXCLUDED_TYPES,
+    FINISH_MAX_LAG_FRAMES,
     FINISH_TYPES,
     GATHER_FRAMES,
     JUMP_SHOT_TYPES,
@@ -27,8 +28,9 @@ def decision_frame(
 
     Jump shots are judged at the start of the gather (``GATHER_FRAMES`` before release, not
     before the touch start); finishes at the last dribble at or before release, else at the
-    touch start. If the chosen frame has no tracking, the next ``NO_TRACKING_LOOKAHEAD``
-    frames are tried; otherwise the shot is excluded.
+    touch start, but never more than ``FINISH_MAX_LAG_FRAMES`` before release. If the chosen
+    frame has no tracking, the next ``NO_TRACKING_LOOKAHEAD`` frames are tried; otherwise the
+    shot is excluded.
     """
     shot_id = str(shot["id"])
     kind = shot.get("complex_shot_type")
@@ -47,6 +49,7 @@ def decision_frame(
     elif kind in FINISH_TYPES:
         before = [f for f in dribble_frames if f <= release]
         frame, rule = (max(before), "last_dribble") if before else (touch_start, "touch_start")
+        frame = max(frame, release - FINISH_MAX_LAG_FRAMES)
     else:
         return _excluded(shot_id, f"unknown_type:{kind}")
     for candidate in range(frame, frame + NO_TRACKING_LOOKAHEAD + 1):
