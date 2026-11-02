@@ -36,6 +36,13 @@ jobs:
       - run: uv run ventaja data build --game 114243
       - run: uv run ventaja validate score --game 114243
       - run: uv run ventaja snapshot shot-114243-1-0
+      - run: uv run ventaja decisions build --game 114243
+      # Sanity checks are diagnostics for the live validation session: check 1
+      # (cost falls with clock) fails on real data and check 4 fails on the
+      # trimmed single game. Keep them visible without blocking CI.
+      - run: uv run ventaja validate decisions --game 114243
+        continue-on-error: true
+      - run: uv run ventaja decisions show shot-114243-1-0
 
   pipeline-all:
     if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
@@ -47,3 +54,10 @@ jobs:
       - run: uv run ventaja data pull --all
       - run: uv run ventaja data build --all
       - run: uv run ventaja validate score --all
+      # Drift check: retrain to /tmp, never overwrite the versioned model.
+      - run: uv run ventaja model train --all --out /tmp/model.json --figure /tmp/calibration.png
+      # validate reads the decisions tables, so build them with the versioned model first.
+      - run: uv run ventaja decisions build --all
+      # Diagnostics for the live validation session; visible but non-blocking.
+      - run: uv run ventaja validate decisions --all
+        continue-on-error: true
