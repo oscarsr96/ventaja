@@ -116,7 +116,7 @@ def test_decide_without_viable_pass_names_no_alternative(
 
 
 def test_decision_summary_counts_good_read_over_non_null() -> None:
-    from ventaja.cli import _decision_summary
+    from ventaja.cli.decisions import _decision_summary
 
     df = pl.DataFrame(
         {
