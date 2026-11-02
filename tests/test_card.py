@@ -22,11 +22,13 @@ from ventaja.profile.card import (
     LEAGUE_NAME,
     PLAYERS_SCHEMA,
     TEAMS_SCHEMA,
+    build_players,
     card_of,
     find_player,
     flatten_card,
     league_season_shares,
 )
+from ventaja.value.model import ValueModel
 from ventaja.value.params import CLOCK_BUCKETS
 
 GAME_ID = 114243
@@ -153,8 +155,13 @@ def test_player_show_cli(cli_env: Settings) -> None:
     assert card.phrase_es is not None and card.phrase_es in result.output
     assert "Por reloj" in result.output and "24-14" in result.output and "6-0" in result.output
     assert "Por alternativa" in result.output and "Temporada" in result.output
+    no_pass = card.n_shots - card.n_readable
+    assert "descontado por la viabilidad del pase" in result.output
+    assert f"sin pase viable: {no_pass}" in result.output
     en = runner.invoke(app, ["player", "show", str(card.player_id), "--lang", "en"])
     assert en.exit_code == 0 and card.phrase_en is not None and card.phrase_en in en.output
+    assert "discounted by pass viability" in en.output
+    assert f"no viable pass: {no_pass}" in en.output
     missing = runner.invoke(app, ["player", "show", "zzz"])
     assert missing.exit_code == 1
     ambiguous = runner.invoke(app, ["player", "show", "a"])
@@ -193,6 +200,25 @@ def test_player_build_cli(cli_env: Settings, tmp_path: Path) -> None:
     assert result.exit_code == 0, result.output
     assert (tmp_path / "players.parquet").exists() and (tmp_path / "teams.parquet").exists()
     assert f"{FIXTURE_SHOOTERS} jugadores" in result.output
+
+
+def test_artifact_files_players(fixture_players_built: Settings) -> None:
+    root = fixture_players_built.build_dir / "players"
+    assert load_module._artifact_files("players", fixture_players_built) == (
+        [root / "players.parquet"],
+        [root / "teams.parquet"],
+    )
+
+
+def test_build_players_stamps_the_given_model(
+    fixture_curves_built: Settings, trained_fixture_model: ValueModel, tmp_path: Path
+) -> None:
+    players_path, teams_path = build_players(
+        fixture_curves_built, out_dir=tmp_path, model=trained_fixture_model
+    )
+    for path in (players_path, teams_path):
+        stamps = set(pl.read_parquet(path)["model_trained_at"])
+        assert stamps == {trained_fixture_model.trained_at}
 
 
 def test_load_players_falls_back_to_artifacts(

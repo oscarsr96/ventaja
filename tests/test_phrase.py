@@ -72,7 +72,7 @@ def row_with(season: bool = False, **overrides: Any) -> dict[str, Any]:
 
 def test_small_sample_phrase() -> None:
     text = profile_phrase(
-        row_with(n_readable=3, mean_cost=0.5, ignored_alt="post", n_alt_post=5), LEAGUE
+        row_with(n_shots=3, n_readable=3, mean_cost=0.5, ignored_alt="post", n_alt_post=5), LEAGUE
     )
     assert text.startswith("Con 3 tiros valorados la muestra es pequeña")
     assert "deja pasar" not in text
@@ -80,7 +80,13 @@ def test_small_sample_phrase() -> None:
 
 
 def test_small_sample_singular_and_clock_rule() -> None:
-    assert profile_phrase(row_with(n_readable=1), LEAGUE).startswith("Con 1 tiro valorado la")
+    one = row_with(n_shots=1, n_readable=1)
+    assert profile_phrase(one, LEAGUE).startswith("Con 1 tiro valorado la")
+    # R4: the opening counts valued shots (n_shots); the gate stays on n_readable
+    walker = row_with(n_shots=2, n_readable=1)
+    assert profile_phrase(walker, LEAGUE).startswith("Con 2 tiros valorados la muestra")
+    gated = row_with(n_shots=12, n_readable=7)
+    assert profile_phrase(gated, LEAGUE).startswith("Con 12 tiros valorados la muestra")
     row = row_with(n_readable=6, **{"n_24-14": 2, "n_14-6": 2, "n_6-0": 0, "cost_6-0": 0.9})
     row["cost_24-14"] = 0.1
     row["cost_14-6"] = 0.4
@@ -170,9 +176,9 @@ def test_english_variant() -> None:
     assert "tends to shoot once the advantage has faded" in text
     assert "In these games he shoots more from above-the-break three than over his season" in text
     assert "he is mostly a catch-and-shoot player" in text
-    small = profile_phrase(row_with(n_readable=1), LEAGUE, lang="en")
+    small = profile_phrase(row_with(n_shots=1, n_readable=1), LEAGUE, lang="en")
     assert small.startswith("With 1 valued shot the sample is small")
-    assert profile_phrase(row_with(n_readable=4), LEAGUE, lang="en").startswith(
+    assert profile_phrase(row_with(n_shots=4, n_readable=4), LEAGUE, lang="en").startswith(
         "With 4 valued shots"
     )
 

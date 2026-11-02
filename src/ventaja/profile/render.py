@@ -31,8 +31,31 @@ def _games(games: list[int]) -> str:
     return f"{_plural(len(games), 'partido', 'partidos')} ({', '.join(map(str, games))})"
 
 
-def _decision_blocks(card: PlayerCard | TeamCard, league: PlayerCard) -> list[str]:
-    """Value, clock, alternatives and lost moments: what player and team cards share."""
+_VIABILITY = {
+    "es": (
+        "  valor de las alternativas descontado por la viabilidad del pase "
+        "(carril, distancia, reloj < 2 s)",
+        "  sin pase viable: {n} {word} (coste 0, fuera de las medias)",
+    ),
+    "en": (
+        "  alternative values discounted by pass viability (lane, distance, shot clock under 2 s)",
+        "  no viable pass: {n} {word} (cost 0, left out of the means)",
+    ),
+}
+
+_DECISION_WORD = {"es": ("decisión", "decisiones"), "en": ("decision", "decisions")}
+
+
+def _decision_blocks(
+    card: PlayerCard | TeamCard, league: PlayerCard, lang: Lang = "es"
+) -> list[str]:
+    """Value, clock, alternatives and lost moments: what player and team cards share.
+
+    The value block always says that alternatives are discounted by viability and how many
+    decisions had no viable pass (spec section 9).
+    """
+    viability, no_pass = _VIABILITY[lang]
+    n_no_pass = card.n_shots - card.n_readable
     lines = [
         "",
         "Valor",
@@ -42,6 +65,8 @@ def _decision_blocks(card: PlayerCard | TeamCard, league: PlayerCard) -> list[st
         f"  coste medio {_num(card.mean_cost)}  [liga {_num(league.mean_cost)}]",
         f"  buena lectura {_pct(card.good_read_share)} de {card.n_readable} legibles  "
         f"[liga {_pct(league.good_read_share)}]",
+        viability,
+        no_pass.format(n=n_no_pass, word=_DECISION_WORD[lang][n_no_pass != 1]),
         "",
         "Por reloj",
         f"  {'tramo':<7}{'n':>4}{'coste':>8}{'liga':>8}",
@@ -105,7 +130,8 @@ def _season_block(card: PlayerCard, league: PlayerCard) -> list[str]:
 
 
 def render_card(card: PlayerCard, league: PlayerCard, *, lang: Lang = "es") -> str:
-    """The text card of a player against the league row; the phrase in ``lang``."""
+    """The text card of a player against the league row; the phrase and the viability note in
+    ``lang`` (the other labels are Spanish)."""
     header = (
         f"{card.name} · {card.team or 'sin equipo'} · "
         f"{_plural(card.n_shots, 'tiro', 'tiros')} "
@@ -113,7 +139,7 @@ def render_card(card: PlayerCard, league: PlayerCard, *, lang: Lang = "es") -> s
         f"{_games(card.games)}"
     )
     phrase = card.phrase_es if lang == "es" else card.phrase_en
-    lines = [header, *_decision_blocks(card, league), *_season_block(card, league)]
+    lines = [header, *_decision_blocks(card, league, lang), *_season_block(card, league)]
     return "\n".join([*lines, "", phrase or "-"])
 
 

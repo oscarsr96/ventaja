@@ -191,8 +191,9 @@ def profile_phrase(row: Mapping[str, Any], league: Mapping[str, Any], *, lang: L
 
     The first sentence joins, with "; ", the fragments of the reading (rule 2), the ignored
     alternative (3), the lost moments (4) and the clock (5). With fewer than
-    ``PROFILE_MIN_SHOTS`` readable shots it opens with the small-sample note and adds only the
-    clock rule. The second sentence (rule 6) exists only with a season block.
+    ``PROFILE_MIN_SHOTS`` readable shots it opens with the small-sample note, which counts the
+    valued shots (``n_shots``), and adds only the clock rule. The second sentence (rule 6)
+    exists only with a season block.
     """
     t = _TEXT[lang]
     alts = ALT_NAMES_ES if lang == "es" else ALT_NAMES_EN
@@ -202,7 +203,8 @@ def profile_phrase(row: Mapping[str, Any], league: Mapping[str, Any], *, lang: L
     n_readable = int(_num(row, "n_readable") or 0)
     clock = _clock(row, buckets, t)
     if n_readable < PROFILE_MIN_SHOTS:
-        opening = (t["small_one"] if n_readable == 1 else t["small_many"]).format(n=n_readable)
+        n_shots = int(_num(row, "n_shots") or n_readable)
+        opening = (t["small_one"] if n_shots == 1 else t["small_many"]).format(n=n_shots)
         return _sentence([opening, *([clock] if clock else [])])
 
     first = [

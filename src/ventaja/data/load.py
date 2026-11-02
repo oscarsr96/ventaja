@@ -235,6 +235,8 @@ def artifact_dir(kind: ArtifactKind, settings: Settings) -> Path:
 
 def _artifact_files(kind: ArtifactKind, settings: Settings) -> tuple[list[Path], list[Path]]:
     root = artifact_dir(kind, settings)
+    if kind == "players":
+        return _main_tables(root, kind), sorted(root.glob(TEAMS_FILE))
     return _main_tables(root, kind), sorted(root.glob(f"*{_SECONDARY_SUFFIX[kind]}"))
 
 

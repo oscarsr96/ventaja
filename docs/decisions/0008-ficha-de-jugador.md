@@ -25,12 +25,14 @@ Los 10 partidos dan 1 351 tiros valorados de 190 tiradores, con una mediana de 6
 
 **Frase** (`profile/phrase.py`, en es y en). Las reglas y sus umbrales (en `value/params.py`) son:
 
-1. **Muestra.** Con menos de `PROFILE_MIN_SHOTS` = 8 tiros legibles, la frase empieza por «Con {n} tiros valorados la muestra es pequeña» y solo añade la regla 5. No se afirma ninguna tendencia por debajo de 8. Es el mínimo de apoyo para afirmar algo; el mínimo para tener ficha sigue siendo 1.
+1. **Muestra.** Con menos de `PROFILE_MIN_SHOTS` = 8 tiros legibles, la frase empieza por «Con {n} tiros valorados la muestra es pequeña» (singular con 1) y solo añade la regla 5. El umbral se mide en tiros legibles, pero `{n}` es `n_shots`, los tiros valorados (revisión R4): Jordan Walker, con 2 tiros y 1 legible, lee «Con 2 tiros valorados la muestra es pequeña». No se afirma ninguna tendencia por debajo de 8. Es el mínimo de apoyo para afirmar algo; el mínimo para tener ficha sigue siendo 1.
 2. **Lectura frente a la liga.** «Elige bien el tiro» si `good_read_share` ≥ la de la liga + `PROFILE_READ_DELTA` (0,08). Si no, «suele tener un pase mejor disponible» si `mean_cost` ≥ el de la liga + `PROFILE_COST_DELTA` (0,05). Si no, «decide en la media de la liga».
 3. **Alternativa.** «La opción que más deja pasar es {alternativa}», si `ignored_alt` tiene al menos `PROFILE_ALT_MIN` = 3 decisiones.
 4. **Momentos perdidos.** «Tiende a tirar cuando la ventaja ya se ha esfumado» si `late_held_share` ≥ `PROFILE_LATE_SHARE` (0,25).
 5. **Reloj.** «Su coste sube con {tramo}», donde el tramo es el de mayor coste entre los que tienen al menos 2 tiros legibles, si supera al menor en `PROFILE_COST_DELTA` o más.
 6. **Temporada** (segunda frase, solo si hay bloque de temporada). «En estos partidos tira más desde {zona} que en su temporada» si el mayor `shift` es ≥ `PROFILE_ZONE_SHIFT` (0,15). Tras la revisión R3, las cláusulas de tiro tras recepción y de mano encima son **relativas a la liga**: aparecen solo si la proporción del jugador es ≥ la de la liga + `PROFILE_SEASON_DELTA` (0,10). Con un umbral absoluto, «la mayoría de sus tiros son con mano encima» describía a casi todo el mundo, porque la media de la liga es 0,684.
+
+**Desglose y viabilidad en la ficha** (§9). Además de las tablas por reloj y por alternativa, el bloque «Valor» de `player show` y `player team` dice siempre que el valor de las alternativas está descontado por la viabilidad del pase (carril, distancia, reloj por debajo de 2 s), y cuántas decisiones del jugador no tenían pase viable (`n_shots − n_readable`): cuentan con coste 0 y quedan fuera de las medias. Con `--lang en` esa nota y la frase salen en inglés; el resto de etiquetas, en español.
 
 El vocabulario es descriptivo («suele tener un pase mejor», «la opción que más deja pasar»). Nunca usa «falla», «se equivoca» ni «mala decisión».
 

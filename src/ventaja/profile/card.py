@@ -263,14 +263,17 @@ def _write(
     _write_parquet_atomic(pl.DataFrame([flatten_card(c) for c in cards], schema=schema), path)
 
 
-def build_players(settings: Settings, *, out_dir: Path | None = None) -> tuple[Path, Path]:
+def build_players(
+    settings: Settings, *, out_dir: Path | None = None, model: ValueModel | None = None
+) -> tuple[Path, Path]:
     """Build ``players.parquet`` and ``teams.parquet`` from every game with decisions.
 
     Decisions, curve summaries and options of the games in ``artifact_dir("decisions")`` are
     concatenated. Players are the shooters with at least one valued decision; name and team come
     from ``meta/players`` (the id as name and no team without it), team names from
     ``meta/games``. The season block needs the shots aggregate; drives are optional.
-    Written atomically to ``out_dir`` (default: the build's ``players/``).
+    ``model_trained_at`` is ``model.trained_at`` (default: the versioned model). Written
+    atomically to ``out_dir`` (default: the build's ``players/``).
     """
     games = [int(p.stem) for p in decision_files(settings)[0]]
     if not games:
@@ -284,7 +287,7 @@ def build_players(settings: Settings, *, out_dir: Path | None = None) -> tuple[P
     team_names = _team_names(_optional(lambda: load_meta("games", settings)))
     stamps = {
         "built_at": datetime.now(UTC).isoformat(timespec="seconds"),
-        "model_trained_at": ValueModel.default().trained_at,
+        "model_trained_at": (model if model is not None else ValueModel.default()).trained_at,
     }
 
     valued = decisions.filter(pl.col("rule") != "excluded")

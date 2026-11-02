@@ -57,9 +57,11 @@ def fixture_curves_built(
 
 
 @pytest.fixture(scope="session")
-def fixture_players_built(fixture_curves_built: Settings) -> Iterator[Settings]:
-    """``fixture_curves_built`` with the player and team cards built once."""
-    build_players(fixture_curves_built)
+def fixture_players_built(
+    fixture_curves_built: Settings, trained_fixture_model: ValueModel
+) -> Iterator[Settings]:
+    """``fixture_curves_built`` with the player and team cards built once (toy model stamp)."""
+    build_players(fixture_curves_built, model=trained_fixture_model)
     yield fixture_curves_built
 
 
