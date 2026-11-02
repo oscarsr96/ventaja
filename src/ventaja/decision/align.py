@@ -5,6 +5,7 @@
 consume snapshots and never read ``left_hoop`` itself.
 """
 
+from functools import cached_property
 from typing import Any
 
 import polars as pl
@@ -77,7 +78,8 @@ class Aligner:
     """Builds offense-oriented snapshots of one game.
 
     Possessions, chances, shots and game metadata are loaded once; tracking stays lazy and
-    each ``snapshot``/``window`` call runs a single filtered ``collect()``.
+    each ``snapshot``/``window`` call runs a single filtered ``collect()``. The set of tracked
+    frames used by ``decision_frame`` is scanned once, on first use.
     """
 
     def __init__(self, game_id: int, settings: Settings) -> None:
@@ -90,7 +92,11 @@ class Aligner:
         self._touches = load_events(game_id, "touches", settings)
         self._dribbles = load_events(game_id, "dribbles", settings)
         self._tracking = load_tracking(game_id, settings)
-        self._tracked_frames = frozenset(
+
+    @cached_property
+    def _tracked_frames(self) -> frozenset[int]:
+        """Every tracked ``frame_idx`` of the game; scanned on first use, then cached."""
+        return frozenset(
             self._tracking.select("frame_idx").unique().collect()["frame_idx"].to_list()
         )
 
