@@ -80,7 +80,9 @@ def test_curve_best_pass_value_null_without_viable_pass(
     assert c.height == 16 and (c["n_viable"] == 0).all()
     assert c["best_pass_value"].null_count() == c.height
     assert (c["best_option_type"] == "shot").all()
-    s = summarize_curve(c, shot_id=SHOT_ID, game_id=114243, decision_frame=3885, shot_value=0.0)
+    s = summarize_curve(
+        c, shot_id=SHOT_ID, game_id=114243, decision_frame=3885, shot_value=0.0, shooter_id=35028
+    )
     assert s.verdict == "none"  # the handler's own shot never counts as advantage
 
 
@@ -183,6 +185,7 @@ def _summarize(
     *,
     handlers: list[int] | None = None,
     best: list[float] | None = None,
+    shooter_id: int = 8,
 ) -> CurveSummary:
     return summarize_curve(
         _summary_curve(passes, handlers, best),
@@ -190,6 +193,7 @@ def _summarize(
         game_id=1,
         decision_frame=decision_frame,
         shot_value=0.8,
+        shooter_id=shooter_id,
     )
 
 
@@ -292,9 +296,27 @@ def test_summary_value_at_decision_tie_takes_earlier() -> None:
             "best_pass_value": [0.3, 1.0, 0.9],
         }
     )
-    s = summarize_curve(curve, shot_id="s", game_id=1, decision_frame=105, shot_value=0.5)
+    s = summarize_curve(
+        curve, shot_id="s", game_id=1, decision_frame=105, shot_value=0.5, shooter_id=1
+    )
     assert s.value_at_decision == 0.3  # 105 is 5 from both 100 and 110
     assert s.verdict == "none"  # the only run starts at 110, after the decision
+
+
+def test_held_to_decision() -> None:
+    # late, and the shooter (8) holds the ball from the window's end (115) to the decision
+    held = _summarize(LATE, 125)
+    assert held.verdict == "late" and held.held_to_decision is True
+    # late, but another handler has the ball between the window and the decision frame
+    passed = _summarize(LATE, 125, handlers=[8, 8, 8, 8, 6, 8])
+    assert passed.verdict == "late" and passed.held_to_decision is False
+    # late, the window was a teammate's (5) and the shooter (8) holds it afterwards
+    earlier = _summarize(LATE, 125, handlers=[5, 5, 5, 5, 8, 8])
+    assert earlier.verdict == "late" and earlier.held_to_decision is False
+    # during, none and no_window are never held
+    assert _summarize(LATE, 112).held_to_decision is False
+    assert _summarize(LATE, 101).held_to_decision is False
+    assert _summarize([1.0, 1.2], 105).held_to_decision is False
 
 
 def test_summary_no_window() -> None:
@@ -309,7 +331,9 @@ def test_summary_no_window() -> None:
 
 def test_summary_empty_curve() -> None:
     empty = pl.DataFrame(schema={c: CURVE_SCHEMA[c] for c in CURVE_SCHEMA})
-    s = summarize_curve(empty, shot_id="s", game_id=1, decision_frame=10, shot_value=0.5)
+    s = summarize_curve(
+        empty, shot_id="s", game_id=1, decision_frame=10, shot_value=0.5, shooter_id=1
+    )
     assert s.verdict == "no_window" and s.n_rows == 0
     assert s.span_start is None and s.span_end is None
 
@@ -319,7 +343,9 @@ def test_summary_of_fixture_curve(
 ) -> None:
     a = Aligner(114243, built_fixture)
     c = _curve(a, SHOT_ID, fixture_priors, trained_fixture_model)
-    s = summarize_curve(c, shot_id=SHOT_ID, game_id=114243, decision_frame=3885, shot_value=0.0)
+    s = summarize_curve(
+        c, shot_id=SHOT_ID, game_id=114243, decision_frame=3885, shot_value=0.0, shooter_id=35028
+    )
     assert s.n_rows == 16 and (s.span_start, s.span_end) == (3820, 3895)
     # every viable pass beats a zero-value shot; runs split at 35028 -> 28247 -> 35028
     assert s.verdict == "during" and s.window_handler_id == 35028
@@ -347,6 +373,7 @@ def _make(verdict: str, advantage: float, lag: float | None, n_rows: int = 6) ->
             "value_at_decision": None,
             "shot_value": 0.9,
             "verdict": verdict,
+            "held_to_decision": False,
         }
     )
 

@@ -14,7 +14,7 @@ import polars as pl
 
 from ventaja.config import FPS
 from ventaja.decision.align import Aligner
-from ventaja.decision.curve import headline
+from ventaja.decision.curve import advantage_runs, headline
 from ventaja.errors import DataNotFoundError
 from ventaja.model.decision import CurveSummary, Decision
 from ventaja.model.snapshot import Snapshot
@@ -35,6 +35,7 @@ CLIP_FIGSIZE = (6.0, 8.8)  # court 6 x 6.4 on top, curve 6 x 2.2 below
 FIGURE_FIGSIZE = (7.0, 3.0)
 FIGURE_DPI = 150
 _WINDOW_VERDICTS = ("late", "during")
+_HALF_STEP = CURVE_STEP_FRAMES / 2  # spans cover each sampled row's interval: width = duration
 
 
 def curve_of_shot(
@@ -80,6 +81,38 @@ def _marker_xy(curve: pl.DataFrame, frame: int) -> tuple[float, float] | None:
     return t, float(np.interp(t, xs, ys))
 
 
+def _shade_other_runs(
+    ax: Any, curve: pl.DataFrame, summary: CurveSummary, decision_frame: int, release: int
+) -> None:
+    """Shade in light grey the advantage runs that are not the summary's window.
+
+    A run is shaded when its handler differs from the window's (without a window: from the
+    handler at the row closest to the decision frame) or when it ends before the window.
+    """
+    if summary.window_handler_id is not None:
+        ref = summary.window_handler_id
+    else:
+        frames = curve["frame_idx"].to_list()
+        closest = min(range(len(frames)), key=lambda i: abs(frames[i] - decision_frame))
+        ref = int(curve["handler_id"][closest])
+    label: str | None = "advantage (other handler)"
+    for start, end, handler in advantage_runs(curve, summary.shot_value):
+        if (start, end) == (summary.window_start, summary.window_end):
+            continue
+        before = summary.window_start is not None and end < summary.window_start
+        if handler == ref and not before:
+            continue
+        ax.axvspan(
+            (start - release - _HALF_STEP) / FPS,
+            (end - release + _HALF_STEP) / FPS,
+            color="lightgrey",
+            alpha=0.6,
+            lw=0,
+            label=label,
+        )
+        label = None
+
+
 def plot_curve(
     ax: Any,
     curve: pl.DataFrame,
@@ -92,9 +125,11 @@ def plot_curve(
 
     Lines: the best option (solid), the handler's own shot from where he stands (dotted), the
     best viable pass (dashed, gaps where none is viable or frames are missing) and the value
-    of the shot taken (horizontal). The advantage window is shaded when the verdict is
-    ``late`` or ``during``; vertical lines mark the decision frame and the release; a marker
-    sits on the best-option line at ``marker_frame`` if given. No title: the caller sets it.
+    of the shot taken (horizontal). The advantage window is shaded orange when the verdict is
+    ``late`` or ``during``; every other advantage run that belongs to another handler (or
+    ends before the window) is shaded light grey; each span covers its rows' sampled interval.
+    Vertical lines mark the decision frame and the release; a marker sits on the best-option
+    line at ``marker_frame`` if given. Legend upper left. No title: the caller sets it.
     """
     ax.set_ylim(*Y_RANGE)
     ax.set_xlabel("seconds to release", fontsize=8)
@@ -115,6 +150,8 @@ def plot_curve(
             *_broken(curve, "best_pass_value"), color="seagreen", ls="--", lw=1.3, label="best pass"
         )
     ax.axhline(summary.shot_value, color="crimson", lw=1.0, label="shot taken")
+    if release is not None:
+        _shade_other_runs(ax, curve, summary, decision_frame, release)
     if (
         release is not None
         and summary.verdict in _WINDOW_VERDICTS
@@ -122,8 +159,8 @@ def plot_curve(
         and summary.window_end is not None
     ):
         ax.axvspan(
-            (summary.window_start - release) / FPS,
-            (summary.window_end - release) / FPS,
+            (summary.window_start - release - _HALF_STEP) / FPS,
+            (summary.window_end - release + _HALF_STEP) / FPS,
             color="orange",
             alpha=0.25,
             lw=0,
@@ -140,7 +177,7 @@ def plot_curve(
         ax.set_xlim(float(curve["t_to_release"].min()) - 0.1, 0.4)  # type: ignore[arg-type]
     if marker_frame is not None and (xy := _marker_xy(curve, marker_frame)) is not None:
         ax.plot(*xy, "o", color="crimson", ms=6, zorder=10)
-    ax.legend(loc="lower left", fontsize=6, ncol=3, framealpha=0.8)
+    ax.legend(loc="upper left", fontsize=6, ncol=3, framealpha=0.8)
 
 
 def render_clip(

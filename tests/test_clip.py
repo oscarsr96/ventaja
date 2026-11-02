@@ -2,6 +2,7 @@
 
 import warnings
 from pathlib import Path
+from typing import Any
 
 import polars as pl
 import pytest
@@ -129,3 +130,67 @@ def test_curves_plot_cli(
     result = CliRunner().invoke(app, ["curves", "plot", SHOT_ID, "--out", str(out)])
     assert result.exit_code == 0, result.output
     assert out.exists() and out.stat().st_size > 5_000
+
+
+def _synthetic_curve(handlers: list[int], passes: list[float]) -> pl.DataFrame:
+    n = len(passes)
+    frames = [100 + 5 * i for i in range(n)]
+    release = frames[-1]
+    return pl.DataFrame(
+        {
+            "frame_idx": frames,
+            "t_to_release": [(f - release) / 25 for f in frames],
+            "handler_id": handlers,
+            "handler_shot_value": [0.8] * n,
+            "best_value": passes,
+            "best_pass_value": passes,
+        }
+    )
+
+
+def _patch_colors(ax: Any) -> list[tuple[float, ...]]:
+    from matplotlib.colors import to_rgb
+
+    return [tuple(round(c, 3) for c in to_rgb(p.get_facecolor())) for p in ax.patches]
+
+
+def test_plot_curve_other_handler_shading() -> None:
+    import matplotlib
+
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+    from matplotlib.colors import to_rgb
+
+    from ventaja.decision.curve import summarize_curve
+    from ventaja.viz.clip import plot_curve
+
+    # handler 5 has advantage at 100-105, passes; shooter 8 has it at 115-120; decision 130
+    passes = [1.2, 1.3, 0.5, 1.1, 1.2, 0.6, 0.6]
+    curve = _synthetic_curve([5, 5, 8, 8, 8, 8, 8], passes)
+    summary = summarize_curve(
+        curve, shot_id="s", game_id=1, decision_frame=130, shot_value=0.8, shooter_id=8
+    )
+    assert (summary.window_start, summary.window_end, summary.verdict) == (115, 120, "late")
+    fig, ax = plt.subplots()
+    try:
+        plot_curve(ax, curve, summary, decision_frame=130)
+        colors = _patch_colors(ax)
+        grey = tuple(round(c, 3) for c in to_rgb("lightgrey"))
+        orange = tuple(round(c, 3) for c in to_rgb("orange"))
+        assert colors.count(grey) == 1 and colors.count(orange) == 1
+        labels = [t.get_text() for t in ax.get_legend().get_texts()]
+        assert "advantage (other handler)" in labels and "advantage window" in labels
+        assert ax.get_legend()._loc == 2  # upper left
+    finally:
+        plt.close(fig)
+    # without another handler's run there is no grey patch
+    alone = _synthetic_curve([8] * 7, passes)
+    s2 = summarize_curve(
+        alone, shot_id="s", game_id=1, decision_frame=130, shot_value=0.8, shooter_id=8
+    )
+    fig, ax = plt.subplots()
+    try:
+        plot_curve(ax, alone, s2, decision_frame=130)
+        assert tuple(round(c, 3) for c in to_rgb("lightgrey")) in _patch_colors(ax)  # 100-105
+    finally:
+        plt.close(fig)

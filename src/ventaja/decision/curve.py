@@ -30,6 +30,7 @@ __all__ = [
     "CURVE_SCHEMA",
     "SUMMARY_SCHEMA",
     "CurveResult",
+    "advantage_runs",
     "build_curves",
     "headline",
     "possession_curve",
@@ -157,8 +158,28 @@ def _runs(flags: list[bool], handlers: list[int]) -> list[tuple[int, int]]:
     return runs
 
 
+def advantage_runs(curve: pl.DataFrame, shot_value: float) -> list[tuple[int, int, int]]:
+    """``(start_frame, end_frame, handler_id)`` of every advantage run of a sorted curve.
+
+    A row is advantage when its ``best_pass_value`` reaches ``shot_value +
+    ADVANTAGE_TOLERANCE``; a run is a maximal sequence of consecutive advantage rows of one
+    handler (see ``summarize_curve``).
+    """
+    frames = [int(f) for f in curve["frame_idx"]]
+    handlers = [int(h) for h in curve["handler_id"]]
+    passes: list[float | None] = curve["best_pass_value"].to_list()
+    flags = [p is not None and p >= shot_value + ADVANTAGE_TOLERANCE for p in passes]
+    return [(frames[lo], frames[hi], handlers[lo]) for lo, hi in _runs(flags, handlers)]
+
+
 def summarize_curve(
-    curve: pl.DataFrame, *, shot_id: str, game_id: int, decision_frame: int, shot_value: float
+    curve: pl.DataFrame,
+    *,
+    shot_id: str,
+    game_id: int,
+    decision_frame: int,
+    shot_value: float,
+    shooter_id: int,
 ) -> CurveSummary:
     """Advantage window of a curve (sorted by ``frame_idx``), relative to the shot taken.
 
@@ -166,7 +187,8 @@ def summarize_curve(
     reaches ``shot_value + ADVANTAGE_TOLERANCE``; the handler's own hypothetical shot never
     does. A run is a maximal sequence of consecutive advantage rows with the same
     ``handler_id`` (frames absent from the curve do not break it); the last run starting at
-    or before ``decision_frame`` is kept. See ``CurveSummary`` for the verdicts.
+    or before ``decision_frame`` is kept. See ``CurveSummary`` for the verdicts and for
+    ``held_to_decision`` (read against ``shooter_id``).
     """
     frames = [int(f) for f in curve["frame_idx"]]
     values = [float(v) for v in curve["best_value"]]
@@ -189,6 +211,7 @@ def summarize_curve(
         "release_lag_seconds": None,
         "value_at_decision": None,
         "verdict": "no_window",
+        "held_to_decision": False,
     }
     if len(frames) < CURVE_MIN_ROWS:
         return CurveSummary(**out)
@@ -213,6 +236,15 @@ def summarize_curve(
     run_passes = [p for p in passes[lo : hi + 1] if p is not None]  # all set inside a run
     start, end = frames[lo], frames[hi]
     late = end < decision_frame
+    held = (
+        late
+        and handlers[lo] == shooter_id
+        and all(
+            h == shooter_id
+            for f, h in zip(frames, handlers, strict=True)
+            if end < f <= decision_frame
+        )
+    )
     out |= {
         "window_start": start,
         "window_end": end,
@@ -221,6 +253,7 @@ def summarize_curve(
         "advantage_seconds": (end - start + CURVE_STEP_FRAMES) / FPS,
         "release_lag_seconds": (decision_frame - end) / FPS if late else 0.0,
         "verdict": "late" if late else "during",
+        "held_to_decision": held,
     }
     return CurveSummary(**out)
 
@@ -271,6 +304,7 @@ SUMMARY_SCHEMA: dict[str, Any] = {
     "value_at_decision": pl.Float64,
     "shot_value": pl.Float64,  # the real shot's value, from the decisions table
     "verdict": pl.String,  # Verdict
+    "held_to_decision": pl.Boolean,
     "headline_es": pl.String,
     "headline_en": pl.String,
     "skipped_off_court": pl.Int64,
@@ -309,6 +343,7 @@ def build_curves(
             game_id=game_id,
             decision_frame=row["decision_frame"],
             shot_value=row["shot_value"],
+            shooter_id=row["shooter_id"],
         )
         curves.append(result.curve)
         summaries.append(

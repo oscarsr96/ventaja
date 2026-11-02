@@ -84,7 +84,11 @@ class CurveSummary(_Frozen):
     rows the verdict is ``no_window`` and every optional field is None. ``peak_frame`` and
     ``peak_value`` describe the whole curve's ``best_value``; ``window_peak_value`` is the
     run's highest ``best_pass_value``. ``span_start``/``span_end`` are the first and last
-    sampled frames (None when empty).
+    sampled frames (None when empty). ``held_to_decision`` is True only for a ``late`` whose
+    run belongs to the shooter and whose every row after the run, up to the decision frame,
+    has the shooter as handler: he kept the ball while the advantage closed. A ``late``
+    without it means the advantage was used (the ball went to another player) or belonged
+    to an earlier handler.
     """
 
     shot_id: str
@@ -103,3 +107,4 @@ class CurveSummary(_Frozen):
     value_at_decision: float | None
     shot_value: float
     verdict: Verdict
+    held_to_decision: bool
