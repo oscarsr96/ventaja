@@ -22,6 +22,53 @@ def _row_containing(df: pl.DataFrame, frame_idx: int) -> dict[str, Any] | None:
     return hit.row(0, named=True) if hit.height else None
 
 
+_FPS = 25
+_REACH = 2  # neighbour frames read on each side of a frame for velocity
+
+Velocity = tuple[float | None, float | None]
+
+
+def _velocities(
+    context: pl.DataFrame, frame_idx: int, left_hoop: bool
+) -> dict[int | str, Velocity]:
+    """Finite-difference velocity (ft/s, offense-oriented) of each player and the ball.
+
+    ``context`` holds raw tracking rows of frames around ``frame_idx`` (it must include the
+    central one). Keys are ``player_id`` for players and ``"ball"`` for the ball. Central
+    difference over ``frame_idx -/+ 2`` when both exist for that entity, else a one-sided
+    difference with the nearest existing neighbour at distance 1 or 2, else ``(None, None)``.
+    """
+    oriented = orient_frame(context, left_hoop)
+    pos: dict[int, dict[int | str, tuple[float, float]]] = {}
+    for r in oriented.iter_rows(named=True):
+        key: int | str = "ball" if r["side"] == "ball" else r["player_id"]
+        pos.setdefault(r["frame_idx"], {})[key] = (r["x"], r["y"])
+
+    def diff(key: int | str, a: int, b: int) -> Velocity:
+        (xa, ya), (xb, yb) = pos[a][key], pos[b][key]
+        scale = _FPS / (b - a)
+        return ((xb - xa) * scale, (yb - ya) * scale)
+
+    out: dict[int | str, Velocity] = {}
+    for key in pos.get(frame_idx, {}):
+
+        def has(offset: int, key: int | str = key) -> bool:
+            return key in pos.get(frame_idx + offset, {})
+
+        if has(-_REACH) and has(_REACH):
+            out[key] = diff(key, frame_idx - _REACH, frame_idx + _REACH)
+            continue
+        back = next((k for k in (1, 2) if has(-k)), None)
+        fwd = next((k for k in (1, 2) if has(k)), None)
+        if back is not None:
+            out[key] = diff(key, frame_idx - back, frame_idx)
+        elif fwd is not None:
+            out[key] = diff(key, frame_idx, frame_idx + fwd)
+        else:
+            out[key] = (None, None)
+    return out
+
+
 class Aligner:
     """Builds offense-oriented snapshots of one game.
 
@@ -55,18 +102,23 @@ class Aligner:
         Raises NoTrackingError if the frame has no tracking rows and VentajaError if it lies
         outside every possession (so it cannot be oriented).
         """
-        rows = self._frame_rows(frame_idx)
+        context = self._frame_rows(frame_idx)
         possession = self.possession_at(frame_idx)
         if possession is None:
             raise VentajaError(
                 f"game {self.game_id}: frame {frame_idx} is outside every possession, cannot orient"
             )
-        return self._build(rows, possession)
+        return self._build(context, frame_idx, possession)
 
     def _frame_rows(self, frame_idx: int) -> pl.DataFrame:
-        """Tracking rows of one frame; raises NoTrackingError if there are none."""
-        rows = self._tracking.filter(pl.col("frame_idx") == frame_idx).collect()
-        if rows.height == 0:
+        """Tracking rows of ``[frame_idx - 2, frame_idx + 2]`` (one collect).
+
+        Raises NoTrackingError if the central frame itself has no rows.
+        """
+        rows = self._tracking.filter(
+            pl.col("frame_idx").is_between(frame_idx - _REACH, frame_idx + _REACH)
+        ).collect()
+        if not (rows["frame_idx"] == frame_idx).any():
             raise NoTrackingError(f"game {self.game_id} has no tracking at frame {frame_idx}")
         return rows
 
@@ -92,7 +144,7 @@ class Aligner:
                 f"game {self.game_id}: possession {possession_id} of shot {shot_id} not found"
             )
         frame_idx = int(shot["start_frame"])
-        return self._build(self._frame_rows(frame_idx), hit.row(0, named=True))
+        return self._build(self._frame_rows(frame_idx), frame_idx, hit.row(0, named=True))
 
     def window(self, start: int, end: int) -> list[Snapshot]:
         """Snapshots of every tracked frame in ``[start, end]``, in order.
@@ -104,20 +156,32 @@ class Aligner:
         defense at the boundary; consumers must split the result on ``possession_id``.
         """
         rows = (
-            self._tracking.filter(pl.col("frame_idx").is_between(start, end))
+            self._tracking.filter(pl.col("frame_idx").is_between(start - _REACH, end + _REACH))
             .sort("frame_idx")
             .collect()
         )
         out: list[Snapshot] = []
-        for (frame_idx,), frame in rows.group_by("frame_idx", maintain_order=True):
+        for frame_idx in rows.filter(pl.col("frame_idx").is_between(start, end))[
+            "frame_idx"
+        ].unique(maintain_order=True):
             possession = self.possession_at(int(frame_idx))
             if possession is not None:
-                out.append(self._build(frame, possession))
+                near = rows.filter(
+                    pl.col("frame_idx").is_between(frame_idx - _REACH, frame_idx + _REACH)
+                )
+                out.append(self._build(near, int(frame_idx), possession))
         return out
 
-    def _build(self, rows: pl.DataFrame, possession: dict[str, Any]) -> Snapshot:
-        """Assemble a Snapshot from the 11 tracking rows of one frame."""
-        oriented = orient_frame(rows, bool(possession["left_hoop"]))
+    def _build(self, context: pl.DataFrame, frame_idx: int, possession: dict[str, Any]) -> Snapshot:
+        """Assemble the Snapshot of ``frame_idx`` from tracking rows around it.
+
+        ``context`` holds the rows of ``frame_idx`` and of its +/-2 neighbours; the neighbours
+        only feed the velocities.
+        """
+        left_hoop = bool(possession["left_hoop"])
+        rows = context.filter(pl.col("frame_idx") == frame_idx)
+        velocity = _velocities(context, frame_idx, left_hoop)
+        oriented = orient_frame(rows, left_hoop)
         off_team_id = int(possession["off_team_id"])
         def_team_id = int(possession["def_team_id"])
         if {off_team_id, def_team_id} != set(self._team_of_side.values()):
@@ -132,7 +196,13 @@ class Aligner:
         for r in oriented.iter_rows(named=True):
             if r["side"] == "ball":
                 ball = BallPos(
-                    x=r["x"], y=r["y"], z=r["z"], speed=r["speed"], is_detected=r["is_detected"]
+                    x=r["x"],
+                    y=r["y"],
+                    z=r["z"],
+                    speed=r["speed"],
+                    is_detected=r["is_detected"],
+                    vx=velocity.get("ball", (None, None))[0],
+                    vy=velocity.get("ball", (None, None))[1],
                 )
                 continue
             player = PlayerPos(
@@ -143,10 +213,11 @@ class Aligner:
                 speed=r["speed"],
                 is_detected=r["is_detected"],
                 pred_error=r["pred_error"],
+                vx=velocity.get(r["player_id"], (None, None))[0],
+                vy=velocity.get(r["player_id"], (None, None))[1],
             )
             (offense if player.team_id == off_team_id else defense).append(player)
         first = oriented.row(0, named=True)
-        frame_idx = int(first["frame_idx"])
         if ball is None:
             raise NoTrackingError(f"game {self.game_id} has no ball at frame {frame_idx}")
         chance = self.chance_at(frame_idx)
