@@ -43,6 +43,9 @@ jobs:
       - run: uv run ventaja curves build --game 114243
       - run: uv run ventaja clip shot-114243-1-0 --out /tmp/clip.gif
       - run: uv run ventaja reel rankings --game 114243 --n 3
+      # Player cards read the versioned artifacts/players.parquet; no build needed.
+      - run: uv run ventaja player show 58474
+      - run: uv run ventaja player rank --n 5
 
   pipeline-all:
     if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
@@ -63,3 +66,4 @@ jobs:
       # Curves to /tmp: the versioned artifacts/curves/ is never overwritten.
       - run: uv run ventaja curves build --all --out /tmp/curves
       - run: uv run ventaja reel rankings --all
+      - run: uv run ventaja player build --out /tmp/players
