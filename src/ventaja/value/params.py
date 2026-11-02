@@ -35,3 +35,12 @@ LANE_END_MARGIN = 2.0  # ft, segment ends ignored (a defender guarding passer or
 BETWEEN_WIDTH = 3.0  # ft, a defender this close to the player->hoop segment is between them
 # Shot clock below this many seconds sets the ``shot_clock_low`` flag.
 SHOT_CLOCK_LOW = 4.0
+
+# Pass viability (ADR-0004): a simple, visible discount, not a learned model.
+SHOT_CLOCK_MIN_PASS = 2.0  # s, below this shot clock no pass is viable
+LANE_BLOCKED_FACTOR = 0.4  # viability multiplier when a defender sits in the passing lane
+PASS_DISTANCE_SOFT = 30.0  # ft, passes up to this length keep full viability
+PASS_DISTANCE_HARD = 60.0  # ft, viability falls linearly to zero at this length
+# Classification of the ignored alternative.
+OPEN_DEF_DIST = 6.0  # ft, nearest defender at least this far makes the option "open"
+CUT_SPEED = 4.0  # ft/s toward the hoop that makes a paint option a "cut"

@@ -16,7 +16,9 @@ from ventaja.data import build as build_module
 from ventaja.data import pull as pull_module
 from ventaja.data.catalog import files_for
 from ventaja.data.duck import connect
+from ventaja.data.load import load_decision_options, load_decisions
 from ventaja.decision.align import Aligner
+from ventaja.decision.cost import build_decisions
 from ventaja.errors import DataNotFoundError, VentajaError
 from ventaja.validate import score as score_module
 from ventaja.value import model as model_module
@@ -30,6 +32,8 @@ validate = typer.Typer(help="Check the event model against official data.", no_a
 app.add_typer(validate, name="validate")
 model = typer.Typer(help="Train and inspect the value model.", no_args_is_help=True)
 app.add_typer(model, name="model")
+decisions = typer.Typer(help="Build and inspect shot decision costs.", no_args_is_help=True)
+app.add_typer(decisions, name="decisions")
 
 
 def _version_callback(value: bool) -> None:
@@ -308,3 +312,95 @@ def model_report(
     _print_metrics(loaded.metrics)
     with pl.Config(tbl_rows=50):
         typer.echo(repr(loaded.feature_table()))
+
+
+def _decision_summary(df: pl.DataFrame) -> str:
+    valid = df.filter(pl.col("rule") != "excluded")
+    excluded = df.filter(pl.col("rule") == "excluded").group_by("reason").len().sort("reason")
+    reasons = ", ".join(f"{r} {n}" for r, n in excluded.iter_rows()) or "none"
+    if valid.height:
+        mean_cost = f"{float(valid['cost'].mean()):.3f}"  # type: ignore[arg-type]
+        good = f"{float(valid['good_read'].mean()):.1%}"  # type: ignore[arg-type]
+    else:
+        mean_cost = good = "n/a"
+    return (
+        f"{df.height} shots: valid {valid.height}; excluded {reasons}; "
+        f"mean cost {mean_cost}; good_read {good}"
+    )
+
+
+@decisions.command("build")
+def decisions_build(
+    game: GameOption = None,
+    all_games: AllOption = False,
+    model_path: Annotated[
+        Path | None, typer.Option("--model", help="Model JSON path (default: versioned model).")
+    ] = None,
+) -> None:
+    """Value every shot against its pass options and write the decisions tables."""
+    if not game and not all_games:
+        typer.echo("error: choose games with --game ID (repeatable) or --all", err=True)
+        raise typer.Exit(code=2)
+    try:
+        settings = Settings.from_env()
+        loaded = (
+            model_module.ValueModel.load(model_path)
+            if model_path
+            else model_module.ValueModel.default()
+        )
+        for game_id in GAME_IDS if all_games else game or []:
+            path = build_decisions(game_id, settings, model=loaded)
+            typer.echo(f"game {game_id}: {_decision_summary(pl.read_parquet(path))}")
+            typer.echo(f"  -> {path}")
+    except VentajaError as exc:
+        typer.echo(f"error: {exc}", err=True)
+        raise typer.Exit(code=1) from exc
+
+
+def _fmt(value: float | None, spec: str = ".3f") -> str:
+    return "-" if value is None else format(value, spec)
+
+
+@decisions.command("show")
+def decisions_show(
+    shot_id: Annotated[str, typer.Argument(help="Shot id, e.g. shot-114243-1-0.")],
+) -> None:
+    """Print a shot's decision and its five options (* shooter, > best alternative)."""
+    try:
+        settings = Settings.from_env()
+        game_id = _game_of_shot(shot_id)
+        hit = load_decisions(game_id, settings).filter(pl.col("shot_id") == shot_id)
+        if hit.height == 0:
+            raise DataNotFoundError(f"shot {shot_id} not found in the decisions of {game_id}")
+        d = hit.row(0, named=True)
+        if d["rule"] == "excluded":
+            raise VentajaError(f"shot {shot_id} is excluded: {d['reason']}")
+        opts = load_decision_options(game_id, settings).filter(pl.col("shot_id") == shot_id)
+    except VentajaError as exc:
+        typer.echo(f"error: {exc}", err=True)
+        raise typer.Exit(code=1) from exc
+    typer.echo(
+        f"{shot_id}  frame {d['decision_frame']} ({d['rule']})  release {d['release_frame']}  "
+        f"shot_clock {_fmt(d['shot_clock'], '.2f')}"
+    )
+    typer.echo(
+        f"shot value {_fmt(d['shot_value'])}  best alt {_fmt(d['best_alt_value'])}  "
+        f"cost {_fmt(d['cost'])}  good_read {d['good_read']}  "
+        f"confidence {_fmt(d['confidence'], '.1f')}"
+    )
+    typer.echo(
+        f"  {'player_id':>9} {'type':5} {'zone':16} {'P':>5} {'value':>6} "
+        f"{'viab':>5} {'adj':>6} alternative"
+    )
+    for o in opts.iter_rows(named=True):
+        if o["option_type"] == "shot":
+            mark = "*"
+        elif o["player_id"] == d["best_alt_player_id"]:
+            mark = ">"
+        else:
+            mark = " "
+        typer.echo(
+            f"{mark} {o['player_id']:>9} {o['option_type']:5} {o['zone']:16} "
+            f"{o['proba']:>5.2f} {o['value']:>6.3f} {o['viability']:>5.2f} "
+            f"{o['adjusted_value']:>6.3f} {o['alternative_type'] or '-'}"
+        )

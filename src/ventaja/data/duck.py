@@ -4,6 +4,7 @@ import duckdb
 
 from ventaja.config import Settings
 from ventaja.data.build import AGGREGATE_TABLES, EVENT_TABLES
+from ventaja.data.load import decision_files
 
 META_TABLES: tuple[str, ...] = ("games", "players", "matches")
 
@@ -23,9 +24,10 @@ def _create_view(con: duckdb.DuckDBPyConnection, name: str, files: list[str], un
 def connect(settings: Settings, *, read_only: bool = True) -> duckdb.DuckDBPyConnection:
     """Open an in-memory DuckDB with a view per built table (events, tracking, meta, aggregates).
 
-    Tables without any built parquet get no view. Views are the only objects created;
-    ``read_only`` is kept for API stability (the connection is in-memory and nothing
-    is persisted either way).
+    Tables without any built parquet get no view, except ``decisions`` and
+    ``decision_options``, which fall back to the packaged ``artifacts/decisions/``. Views are
+    the only objects created; ``read_only`` is kept for API stability (the connection is
+    in-memory and nothing is persisted either way).
     """
     del read_only
     con = duckdb.connect()
@@ -40,6 +42,7 @@ def connect(settings: Settings, *, read_only: bool = True) -> duckdb.DuckDBPyCon
     for name in AGGREGATE_TABLES:
         files = [str(p) for p in build.glob(f"aggregates/{name}.parquet")]
         _create_view(con, f"agg_{name}", files, union=False)
-    decisions = [str(p) for p in (build / "decisions").glob("*.parquet")]
-    _create_view(con, "decisions", decisions, union=True)
+    decisions, options = decision_files(settings)
+    _create_view(con, "decisions", [str(p) for p in decisions], union=True)
+    _create_view(con, "decision_options", [str(p) for p in options], union=True)
     return con

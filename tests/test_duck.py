@@ -5,6 +5,7 @@ from typer.testing import CliRunner
 
 from ventaja.cli import app
 from ventaja.config import Settings
+from ventaja.data import load as load_module
 from ventaja.data.duck import connect
 
 
@@ -25,7 +26,8 @@ def test_duck_join_shot_to_tracking_frame(built_fixture: Settings) -> None:
     assert n == 20
 
 
-def test_duck_missing_tables_are_skipped(tmp_path: Path) -> None:
+def test_duck_missing_tables_are_skipped(tmp_path: Path, monkeypatch) -> None:  # type: ignore[no-untyped-def]
+    monkeypatch.setattr(load_module, "ARTIFACTS_DIR", tmp_path / "no-artifacts")
     con = connect(Settings(data_dir=tmp_path, build_dir=tmp_path / "empty"))
     assert con.sql("select count(*) from duckdb_views() where not internal").fetchall()[0][0] == 0
 

@@ -65,3 +65,7 @@ class Settings(BaseModel):
     def decisions_parquet(self, game_id: int) -> Path:
         """Path of the built decisions parquet of a game."""
         return self.build_dir / "decisions" / f"{game_id}.parquet"
+
+    def decisions_options_parquet(self, game_id: int) -> Path:
+        """Path of the built per-option parquet of a game's decisions."""
+        return self.build_dir / "decisions" / f"{game_id}.options.parquet"

@@ -10,6 +10,8 @@ from ventaja.config import Settings
 from ventaja.errors import DataNotFoundError
 from ventaja.model.core import Game, Match, Player, Team
 
+# Versioned outputs shipped with the repo (an editable install), like ``DEFAULT_MODEL_PATH``.
+ARTIFACTS_DIR = Path(__file__).parents[3] / "artifacts"
 ALIASES_FILE = "player_id_aliases.csv"
 MATCHES_FILE = "matches.json"
 
@@ -189,3 +191,33 @@ def load_aggregates(name: str, settings: Settings) -> pl.DataFrame:
     if not path.exists():
         raise DataNotFoundError(f"{path} not found; run `ventaja data build --game ID` first")
     return pl.read_parquet(path)
+
+
+def decision_files(settings: Settings) -> tuple[list[Path], list[Path]]:
+    """(decision, option) parquet files: the built ones, or the packaged artifacts if none.
+
+    Decision files are ``{game_id}.parquet``; option files are ``{game_id}.options.parquet``.
+    """
+    for root in (settings.build_dir / "decisions", ARTIFACTS_DIR / "decisions"):
+        options = sorted(root.glob("*.options.parquet"))
+        decisions = [p for p in sorted(root.glob("[0-9]*.parquet")) if p not in options]
+        if decisions or options:
+            return decisions, options
+    return [], []
+
+
+def _decision_table(built: Path) -> pl.DataFrame:
+    for path in (built, ARTIFACTS_DIR / "decisions" / built.name):
+        if path.exists():
+            return pl.read_parquet(path)
+    raise DataNotFoundError(f"{built} not found; run `ventaja decisions build` first")
+
+
+def load_decisions(game_id: int, settings: Settings) -> pl.DataFrame:
+    """The decisions table of a game: built if present, else the packaged artifact."""
+    return _decision_table(settings.decisions_parquet(game_id))
+
+
+def load_decision_options(game_id: int, settings: Settings) -> pl.DataFrame:
+    """The per-option table of a game's decisions: built if present, else the packaged one."""
+    return _decision_table(settings.decisions_options_parquet(game_id))
