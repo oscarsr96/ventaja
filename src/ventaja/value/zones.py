@@ -74,5 +74,5 @@ def region_to_zone(region: str | None) -> Zone | None:
 
 
 def points(zone: Zone) -> int:
-    """Points of a made shot from the zone."""
-    return 3 if zone in ("corner_3", "above_break_3") else 2
+    """Points of a made shot from the zone (``backcourt`` and ``far`` are beyond the arc)."""
+    return 3 if zone in ("corner_3", "above_break_3", "backcourt", "far") else 2

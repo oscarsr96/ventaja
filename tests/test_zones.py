@@ -49,6 +49,8 @@ def test_points() -> None:
     assert points("above_break_3") == 3
     assert points("mid_range") == 2
     assert points("restricted_area") == 2
+    assert points("backcourt") == 3
+    assert points("far") == 3
 
 
 def test_zone_agrees_with_event_region(built_fixture: Settings) -> None:

@@ -20,9 +20,9 @@ from ventaja.value.params import (
     SHOT_CLOCK_LOW,
 )
 from ventaja.value.priors import Priors
-from ventaja.value.zones import is_three, points, zone_of
+from ventaja.value.zones import Zone, is_three, points, region_to_zone, zone_of
 
-__all__ = ["OPTION_FEATURES", "option_rows", "shot_rows"]
+__all__ = ["OPTION_FEATURES", "option_rows", "shot_kwargs", "shot_rows"]
 
 OPTION_FEATURES: tuple[str, ...] = (
     "dist_hoop",
@@ -106,11 +106,17 @@ def _option(
     priors: Priors,
     *,
     is_shot: bool,
+    shot_zone: Zone | None = None,
+    shot_three: bool | None = None,
 ) -> dict[str, Any]:
     pass_distance = 0.0 if is_shot else math.hypot(option.x - shooter.x, option.y - shooter.y)
     dx, dy = (0.0, 0.0) if is_shot else _projected_displacement(option, pass_distance)
     x, y = option.x + dx, option.y + dy
-    zone = zone_of(x, y)
+    zone = shot_zone or zone_of(x, y)
+    if shot_three is None:
+        option_points, option_three = points(zone), is_three(x, y)
+    else:
+        option_points, option_three = (3 if shot_three else 2), shot_three
     dist = distance_to_hoop(x, y)
     nearest = min(snapshot.defense, key=lambda d: math.hypot(x - d.x, y - d.y))
     clock = snapshot.shot_clock
@@ -118,7 +124,7 @@ def _option(
         "option_player_id": option.player_id,
         "option_type": "shot" if is_shot else "pass",
         "zone": zone,
-        "points": points(zone),
+        "points": option_points,
         "x": x,
         "y": y,
         "pass_distance": pass_distance,
@@ -128,7 +134,7 @@ def _option(
         "dist_hoop": dist,
         "dist_hoop_sq": dist * dist,
         "angle_abs": math.atan2(abs(y - HOOP[1]), x - HOOP[0]),
-        "is_three": is_three(x, y),
+        "is_three": option_three,
         "nearest_def_dist": math.hypot(x - nearest.x, y - nearest.y),
         "def_between": _def_between(x, y, snapshot.defense),
         "closing_speed": _closing_speed(x, y, nearest),
@@ -164,10 +170,21 @@ _OPTION_SCHEMA: dict[str, Any] = {
 }
 
 
-def option_rows(snapshot: Snapshot, shooter_id: int, priors: Priors) -> pl.DataFrame:
+def option_rows(
+    snapshot: Snapshot,
+    shooter_id: int,
+    priors: Priors,
+    *,
+    shot_zone: Zone | None = None,
+    shot_three: bool | None = None,
+) -> pl.DataFrame:
     """The shot and the four pass options of ``shooter_id``, one row each.
 
-    Pass options are evaluated at the receiver's projected position (see ``params``).
+    The shot row describes the shot actually attempted: ``shot_zone`` (the event's zone) and
+    ``shot_three`` (the event's ``three`` flag) set its ``zone``, ``points``, ``is_three`` and
+    ``prior_zone`` when given; otherwise they come from the shooter's position. Every other
+    feature of the shot row is read from the decision-frame state. Pass options describe a
+    catch-and-shoot at the receiver's projected position (see ``params``).
     """
     try:
         shooter = snapshot.player(shooter_id)
@@ -175,12 +192,37 @@ def option_rows(snapshot: Snapshot, shooter_id: int, priors: Priors) -> pl.DataF
         raise VentajaError(
             f"shooter {shooter_id} is not on court in frame {snapshot.frame_idx}"
         ) from None
-    rows = [_option(snapshot, shooter, shooter, priors, is_shot=True)]
+    if not snapshot.defense:
+        raise VentajaError(f"no defenders in frame {snapshot.frame_idx}")
+    rows = [
+        _option(
+            snapshot,
+            shooter,
+            shooter,
+            priors,
+            is_shot=True,
+            shot_zone=shot_zone,
+            shot_three=shot_three,
+        )
+    ]
     rows += [
         _option(snapshot, mate, shooter, priors, is_shot=False)
         for mate in snapshot.teammates_of(shooter_id)
     ]
     return pl.DataFrame(rows, schema=_OPTION_SCHEMA)
+
+
+def shot_kwargs(shot: dict[str, Any]) -> dict[str, Any]:
+    """``option_rows`` keywords that describe the attempted shot from its ``shots`` event.
+
+    The zone comes from the event ``region`` (``None`` when unknown, so ``option_rows`` falls
+    back to the shooter's position); the points from the event ``three`` flag.
+    """
+    three = shot.get("three")
+    return {
+        "shot_zone": region_to_zone(shot.get("region")),
+        "shot_three": None if three is None else bool(three),
+    }
 
 
 def shot_rows(aligner: Aligner, priors: Priors) -> pl.DataFrame:
@@ -195,7 +237,7 @@ def shot_rows(aligner: Aligner, priors: Priors) -> pl.DataFrame:
         if decision.rule == "excluded" or decision.frame_idx is None:
             continue
         snapshot = aligner.snapshot_for_shot(shot["id"], decision=True)
-        rows = option_rows(snapshot, shot["shooter_id"], priors)
+        rows = option_rows(snapshot, shot["shooter_id"], priors, **shot_kwargs(shot))
         is_shot = pl.col("option_type") == "shot"
         frames.append(
             rows.with_columns(

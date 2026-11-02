@@ -8,7 +8,7 @@ from ventaja.config import Settings
 from ventaja.decision.align import Aligner
 from ventaja.errors import VentajaError
 from ventaja.geometry.court import distance_to_hoop
-from ventaja.value.features import OPTION_FEATURES, option_rows, shot_rows
+from ventaja.value.features import OPTION_FEATURES, option_rows, shot_kwargs, shot_rows
 from ventaja.value.params import PROJECTION_CAP
 from ventaja.value.priors import Priors
 
@@ -148,10 +148,74 @@ def test_shot_rows_covers_non_excluded_shots(built_fixture: Settings) -> None:
         assert col in df.columns
 
 
+def test_shot_row_uses_the_attempted_shot_zone_and_points() -> None:
+    # The shooter stands beyond the arc at the decision frame (a finish's last dribble)...
+    s = make_snapshot(
+        offense=[(1, -10.0, 0.0), (2, -30.0, 0.0), (3, 0, 15), (4, 0, -15), (5, 0, 10)],
+        defense=FAR_DEF,
+    )
+    default = _row(option_rows(s, 1, _zone_priors()), 1)
+    assert default["zone"] == "above_break_3" and default["points"] == 3
+    assert default["is_three"] is True and default["prior_zone"] == 0.3
+    # ...but the event says the shot was a two at the rim.
+    rows = option_rows(s, 1, _zone_priors(), shot_zone="restricted_area", shot_three=False)
+    shot = _row(rows, 1)
+    assert shot["zone"] == "restricted_area" and shot["points"] == 2
+    assert shot["is_three"] is False and shot["prior_zone"] == 0.6
+    # Geometry stays the decision-frame state; pass rows are unchanged.
+    assert shot["dist_hoop"] == default["dist_hoop"]
+    assert shot["nearest_def_dist"] == default["nearest_def_dist"]
+    assert rows.filter(pl.col("option_type") == "pass").equals(
+        option_rows(s, 1, _zone_priors()).filter(pl.col("option_type") == "pass")
+    )
+
+
+def test_shot_row_three_flag_without_zone_falls_back_to_position() -> None:
+    s = make_snapshot(
+        offense=[(1, -10.0, 0.0), (2, -30.0, 0.0), (3, 0, 15), (4, 0, -15), (5, 0, 10)],
+        defense=FAR_DEF,
+    )
+    shot = _row(option_rows(s, 1, _zone_priors(), shot_zone=None, shot_three=False), 1)
+    assert shot["zone"] == "above_break_3" and shot["points"] == 2 and shot["is_three"] is False
+
+
+def test_shot_kwargs_from_event() -> None:
+    assert shot_kwargs({"region": "ra", "three": False}) == {
+        "shot_zone": "restricted_area",
+        "shot_three": False,
+    }
+    assert shot_kwargs({"region": None, "three": True}) == {"shot_zone": None, "shot_three": True}
+    assert shot_kwargs({"region": "backcourt", "three": True})["shot_zone"] == "backcourt"
+
+
+def test_no_defenders_raises_ventaja_error() -> None:
+    s = make_snapshot(offense=_team((2, 0, 15), (3, 0, -15), (4, 0, 10), (5, 0, 12)), defense=[])
+    with pytest.raises(VentajaError, match="no defenders in frame"):
+        option_rows(s, 1, _priors_stub())
+
+
+def test_shot_rows_shot_row_matches_event_points(built_fixture: Settings) -> None:
+    a = Aligner(114243, built_fixture)
+    shots = shot_rows(a, _priors(built_fixture)).filter(pl.col("option_type") == "shot")
+    assert shots.height > 0
+    expected = shots["three"].map_elements(lambda t: 3 if t else 2, return_dtype=pl.Int64)
+    assert shots["points"].to_list() == expected.to_list()
+    assert shots["is_three"].to_list() == shots["three"].to_list()
+
+
 class _Stub:
     def player_rate(self, player_id: int, zone: str) -> float:
         return 0.4
 
 
+class _ZonePriors:
+    def player_rate(self, player_id: int, zone: str) -> float:
+        return 0.6 if zone == "restricted_area" else 0.3
+
+
 def _priors_stub() -> Priors:
     return _Stub()  # type: ignore[return-value]
+
+
+def _zone_priors() -> Priors:
+    return _ZonePriors()  # type: ignore[return-value]

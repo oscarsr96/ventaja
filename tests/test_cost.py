@@ -160,10 +160,10 @@ def test_build_decisions_records_shooter_off_court(
 ) -> None:
     real = cost_module.option_rows
 
-    def flaky(snapshot, shooter_id, priors):  # type: ignore[no-untyped-def]
+    def flaky(snapshot, shooter_id, priors, **kwargs):  # type: ignore[no-untyped-def]
         if snapshot.frame_idx == 3885:
             raise VentajaError("shooter is not on court")
-        return real(snapshot, shooter_id, priors)
+        return real(snapshot, shooter_id, priors, **kwargs)
 
     monkeypatch.setattr(cost_module, "option_rows", flaky)
     settings = Settings(data_dir=built_fixture.data_dir, build_dir=tmp_path / "b")

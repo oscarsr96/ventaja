@@ -11,7 +11,7 @@ from ventaja.decision.align import Aligner
 from ventaja.errors import NoTrackingError, VentajaError
 from ventaja.model.decision import AlternativeType, Decision, Option
 from ventaja.model.snapshot import Snapshot
-from ventaja.value.features import OPTION_FEATURES, option_rows
+from ventaja.value.features import OPTION_FEATURES, option_rows, shot_kwargs
 from ventaja.value.model import ValueModel
 from ventaja.value.params import (
     CUT_SPEED,
@@ -105,7 +105,7 @@ def decide(aligner: Aligner, shot_id: str, priors: Priors, model: ValueModel) ->
     shot = aligner.shot(shot_id)
     snapshot = aligner.snapshot_for_shot(shot_id, decision=True)
     try:
-        rows = option_rows(snapshot, shot["shooter_id"], priors)
+        rows = option_rows(snapshot, shot["shooter_id"], priors, **shot_kwargs(shot))
     except VentajaError as exc:
         raise ShooterOffCourtError(f"shot {shot_id}: {exc}") from exc
     probas = model.predict_proba(rows).to_list()

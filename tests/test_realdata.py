@@ -66,6 +66,28 @@ def test_every_shot_snapshot_puts_shooter_on_offense_at_shot_location(
     assert not failures, f"{len(failures)} of {a._shots.height} shots fail:\n" + "\n".join(failures)
 
 
+def test_shot_option_points_match_the_event(real_settings: Settings) -> None:
+    """The taken shot is valued with the event's points: 3 if ``three`` else 2 (ADR-0004)."""
+    from ventaja.data.load import load_decision_options, load_events
+
+    for game_id in GAME_IDS:
+        shots = load_events(game_id, "shots", real_settings).select(
+            pl.col("id").alias("shot_id"), "three"
+        )
+        rows = (
+            load_decision_options(game_id, real_settings)
+            .filter(pl.col("option_type") == "shot")
+            .join(shots, on="shot_id", how="left")
+        )
+        assert rows.height > 0 and rows["three"].null_count() == 0
+        expected = pl.when(pl.col("three")).then(3).otherwise(2)
+        bad = rows.filter(
+            (pl.col("points") != expected)
+            | (pl.col("is_three") != pl.col("three").cast(pl.Float64))
+        )
+        assert bad.height == 0, f"game {game_id}: {bad.select('shot_id', 'points', 'three')}"
+
+
 def test_decision_face_validity_checks(real_settings: Settings) -> None:
     """The four automatic sanity checks (spec 5.5) over the decisions of the ten games."""
     from ventaja.data.load import load_decision_options, load_decisions
