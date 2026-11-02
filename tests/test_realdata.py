@@ -112,7 +112,7 @@ def test_decision_face_validity_checks(real_settings: Settings) -> None:
     ok, detail = result["cost_falls_with_clock"]
     if not ok:
         pytest.xfail(
-            "known: mean cost by clock is 0.163 (24-14), 0.204 (14-6), 0.193 (6-0), "
+            "known: mean cost by clock is 0.164 (24-14), 0.205 (14-6), 0.184 (6-0), "
             f"not monotone (see ADR-0004, ADR-0005, ADR-0007); measured now: {detail}"
         )
     pytest.fail(f"cost_falls_with_clock now passes ({detail}); drop the xfail", pytrace=False)
@@ -152,6 +152,9 @@ def test_curve_summaries_cover_every_valued_shot(real_settings: Settings) -> Non
     the row's ``best_pass_value`` (null when no pass is viable) equals the best adjusted pass
     of the decisions options. Rows where the touches give the ball to a teammate of the
     shooter at the decision frame value that teammate's passes and are counted apart.
+    Measured after the fix wave: 1,349 curves have the decision row (the other 2 have no
+    handler there); 1,348 of them have the shooter as handler and all 1,348 agree exactly
+    (gather 700, last_dribble 381, touch_start 267); the other one is ``shot-114169-3-104``.
     """
     from typing import get_args
 
@@ -202,9 +205,9 @@ def test_curve_summaries_cover_every_valued_shot(real_settings: Settings) -> Non
     # ADR-0006 amendment held_to_decision. A range, not a pin, so a data-rule change that
     # moves a few verdicts does not break the check.
     assert 100 <= total_held <= 400, f"{total_held} late curves held to the decision"
-    assert at_frame >= 1250, f"only {at_frame} curves have a row at the decision frame"
-    assert compared >= 1200, f"only {compared} decision rows were compared"
-    assert agree >= compared - 5, f"{agree} of {compared} decision rows agree with layer 1"
-    assert other_handler <= 10, (
+    assert at_frame >= 1340, f"only {at_frame} curves have a row at the decision frame"
+    assert compared >= 1340, f"only {compared} decision rows were compared"
+    assert agree == compared, f"{agree} of {compared} decision rows agree with layer 1"
+    assert other_handler <= 1, (
         f"{other_handler} decision rows have a handler other than the shooter"
     )

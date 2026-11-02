@@ -32,7 +32,7 @@ Python >=3.12, managed with `uv`. Layout `src/ventaja/`. polars, duckdb, pydanti
 
 - All geometry is in offense orientation; `left_hoop` is read only in `decision/align.py` (ADR-0001).
 - Every constant of layers 1 and 2 (curve, clip, rankings, reel) lives in `src/ventaja/value/params.py` and changes only via an ADR.
-- A raw shot clock of 0.0 is the clock switched off: `Aligner` reads it as `None` (unknown), never as zero (ADR-0007).
+- A raw shot clock of 0.0 is the clock switched off: `Aligner` reads it as `None` (unknown), unless a countdown reached it within the previous `SHOT_CLOCK_EXPIRY_LOOKBACK` = 25 frames, in which case it has expired and stays 0.0 (ADR-0007).
 - `models/` and `artifacts/` are derived, versioned artifacts: regenerate them in this order with `ventaja model train --all`, `ventaja decisions build --all --out artifacts/decisions` and `ventaja curves build --all --out artifacts/curves` (`artifacts/curves/` depends on both), never edit them by hand.
 
 ## References

@@ -58,3 +58,19 @@ Los 40 tiros que siguen sin pase viable tienen un reloj real entre 0 y 2 s. El m
 Los cuatro tiros de la sesión del 2 de noviembre se leen igual que los juzgó el entrenador: Kurucs, Andric y González con la mejor alternativa en el receptor señalado (coste 0,794 / 0,342 / 0,133, `good_read` falso) y Spagnolo bloqueado (coste 0, `good_read` verdadero). `shot-191313-4-132` deja de ser un momento perdido de 4,6 s (ahora es un `late` con 0,2 s de retraso) y sale del top 3 del reel; entra `shot-114099-4-117`. Ese cambio no viene del reloj sino del reentrenamiento: una fila de su curva estaba 0,001 puntos por debajo de la tolerancia y ahora la supera, con lo que dos rachas se unen y la ventaja pasa de 0,2 a 4,0 s. La longitud de la ventana es sensible a cambios pequeños del modelo cerca de `ADVANTAGE_TOLERANCE`.
 
 La figura 2 provisional (`docs/figures/curve-shot-191313-4-132.png`) contaba el artefacto y se sustituye.
+
+**Consecuencias de la enmienda R18 (reloj agotado).** Se volvió a regenerar todo en el mismo orden (modelo, decisiones, chequeos, curvas, kit de revisión con las respuestas recopiadas y reel). Las curvas se regeneraron a la vez que el cambio de muestreo de ADR-0006 (el frame de decisión siempre en la curva), así que sus veredictos mezclan los dos efectos.
+
+| cifra | ADR-0007 | tras R18 |
+|---|---:|---:|
+| tiros valorados con reloj nulo | 96 | 88 (8 con reloj 0,0, agotado) |
+| logloss / Brier / AUC (LOGO) | 0,6417 / 0,2256 / 0,6540 | 0,6416 / 0,2256 / 0,6541 |
+| correlación con `shotQuality` | 0,5756 | 0,5760 |
+| sin pase viable (`good_read` nulo) | 40 | 48 |
+| buenas lecturas | 41,4 % de 1 311 | 41,4 % de 1 303 |
+| coste medio (mediana) | 0,193 (0,071) | 0,192 (0,070) |
+| coste por reloj 24-14 / 14-6 / 6-0 s | 0,163 / 0,204 / 0,193 (n 402 / 638 / 215) | 0,164 / 0,205 / 0,184 (n 402 / 638 / 223) |
+| veredictos `during` / `late` / `none` / `no_window` (con R16) | 558 / 528 / 233 / 32 | 621 / 486 / 217 / 27 |
+| `late` con `held_to_decision` (con R16) | 216 | 208 |
+
+Los 8 tiros con el reloj agotado pierden la lectura (`good_read` nulo, coste 0). Entre ellos están los tres costes altos de la tabla de arriba (0,57, 0,40 y 0,39). En las curvas, las filas con el reloj en 0,0 tras una cuenta atrás ya no «resucitan» los pases justo después de la bocina. A cambio, varios de esos tiros entran en el ranking de momentos perdidos con ventanas que se cierran cuando el reloj baja de 2 s (ADR-0006). Los cuatro tiros de la sesión se leen igual (coste 0,797 / 0,342 / 0,134; Spagnolo 0). `cost_falls_with_clock` sigue fallando.
