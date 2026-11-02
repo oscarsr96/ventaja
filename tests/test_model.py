@@ -64,6 +64,16 @@ def test_null_shot_clock_uses_training_mean() -> None:
     assert m.fill["shot_clock"] == pytest.approx(mean_clock)
 
 
+def test_null_without_training_nulls_uses_training_mean() -> None:
+    df = _synthetic()
+    m = fit(df)
+    assert "nearest_def_dist" not in m.fill
+    mean = m.mean[m.features.index("nearest_def_dist")]
+    nulled = df.head(5).with_columns(pl.lit(None, dtype=pl.Float64).alias("nearest_def_dist"))
+    filled = df.head(5).with_columns(pl.lit(mean).alias("nearest_def_dist"))
+    assert (m.predict_proba(nulled) - m.predict_proba(filled)).abs().max() < 1e-9  # type: ignore[operator]
+
+
 def test_value_is_proba_times_points() -> None:
     df = _synthetic(100)
     m = fit(df)

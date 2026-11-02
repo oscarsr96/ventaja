@@ -58,9 +58,14 @@ class ValueModel:
     ventaja_version: str = __version__
 
     def _matrix(self, df: pl.DataFrame) -> Array:
+        # A null becomes the training mean (z = 0) unless ``fill`` stores a value. During
+        # ``fit`` the mean is not known yet, but then every null is already in ``fill``.
         cols = [
-            pl.col(f).cast(pl.Float64).fill_null(self.fill.get(f, 0.0)).alias(f)
-            for f in self.features
+            pl.col(f)
+            .cast(pl.Float64)
+            .fill_null(self.fill.get(f, self.mean[i] if self.mean else 0.0))
+            .alias(f)
+            for i, f in enumerate(self.features)
         ]
         return df.select(cols).to_numpy().astype(np.float64)
 
