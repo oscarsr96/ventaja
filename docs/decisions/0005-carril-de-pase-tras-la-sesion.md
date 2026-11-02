@@ -41,6 +41,8 @@ Sobre las 5 404 filas de pase, `lane_blocked` baja del 59,0 % al 47,4 %. Sobre l
 
 Los cuatro tiros de la sesión: Kurucs, Andric y Gonzalez pasan a `lane_blocked` falso (coste 0,793 / 0,345 / 0,131; `good_read` falso en los tres; mejor alternativa `open_corner` / `extra_pass` / `extra_pass`; antes los tres tenían coste 0 y `good_read` verdadero); Spagnolo sigue bloqueado (coste 0, `good_read` verdadero, `open_corner`).
 
+**Enmienda ADR-0007 (2026-11-02).** Las cifras de coste de este apartado son anteriores a la regla del reloj apagado ([ADR-0007](0007-reloj-de-posesion-apagado.md)). Después: coste medio 0,193, buenas lecturas 41,4 % de 1 311 (40 sin pase viable), coste por reloj 0,163 / 0,204 / 0,193; mejor alternativa `extra_pass` 759, `open_corner` 242, `other` 177, `post` 80, `rim_cut` 53. `lane_blocked` sigue en 47,4 %. Los cuatro tiros de la sesión se leen igual: Kurucs, Andric y Gonzalez con coste 0,794 / 0,342 / 0,133 y `good_read` falso; Spagnolo bloqueado, coste 0.
+
 La reducción es menor de lo previsto en la sesión (se esperaba por debajo del 45 %; queda en 47,4 %). El test con datos reales exige menos de 0,50.
 
 Quedan dos observaciones para la capa 2, sin tocar la capa 1: (1) el campo de visión del pasador, «jugador con balón no puede ver la llegada del compañero abierto en el triple» (`shot-114234-1-25`); (2) los pases largos y arriesgados, «el pase es arriesgado» (`shot-114243-4-140`, 37 ft con viabilidad 0,77).

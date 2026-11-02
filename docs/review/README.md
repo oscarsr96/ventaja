@@ -48,3 +48,5 @@ Se deja `ok` o `mal` (borrando el otro) y, tras la flecha, el motivo. Al termina
 ## Resultado de la sesión del 2 de noviembre de 2026
 
 Se revisaron las 20 posesiones de la muestra con Óscar como entrenador. Frame de decisión: 19 `ok` y 1 `mal`. Opciones valoradas: 17 `ok` y 3 `mal`; los tres `mal` eran pases penalizados por `lane_blocked` con un defensor en el medio del carril. Las respuestas están en [`2026-11-sample/respuestas-2026-11-02.json`](2026-11-sample/respuestas-2026-11-02.json) y copiadas en `2026-11-sample/review.md`. El cambio de regla (carril de pase) se decide en [ADR-0005](../decisions/0005-carril-de-pase-tras-la-sesion.md).
+
+Tras [ADR-0007](../decisions/0007-reloj-de-posesion-apagado.md) (un reloj de posesión a 0,0 es el reloj apagado, desconocido) se regeneró `review.md` con el modelo reentrenado y se volvieron a copiar las respuestas. La muestra es la misma (seed 7) y los cuatro tiros que motivaron ADR-0005 se leen igual: Kurucs, Andric y Gonzalez con la mejor alternativa en el receptor señalado y `good_read` falso; Spagnolo con el pase tapado y `good_read` verdadero. Los «sin pase viable» bajan de 116 a 40 en los 10 partidos.
