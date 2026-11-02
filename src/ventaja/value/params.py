@@ -42,8 +42,12 @@ LANE_OPEN_RECEIVER = 6.0  # ft, receiver's nearest defender at least this far: o
 LANE_DRIVING_SPEED = 4.0  # ft/s, passer moving to the hoop at least this fast: no time to lob
 BETWEEN_WIDTH = 3.0  # ft, a defender this close to the player->hoop segment is between them
 # A raw shot clock of exactly this value is the clock switched off (end of period, or not
-# running), not a clock at zero: the snapshot reads it as unknown, ``None`` (ADR-0007).
+# running), not a clock at zero: the snapshot reads it as unknown, ``None``, unless it was
+# reached by a countdown within ``SHOT_CLOCK_EXPIRY_LOOKBACK`` frames (ADR-0007).
 SHOT_CLOCK_OFF = 0.0
+# Frames (1 s) searched back from a 0.0 reading: a 0.0 reached by a countdown within them is
+# a clock that has just run out (expired, stays 0.0), not a clock switched off (ADR-0007).
+SHOT_CLOCK_EXPIRY_LOOKBACK = 25
 # Shot clock below this many seconds sets the ``shot_clock_low`` flag.
 SHOT_CLOCK_LOW = 4.0
 

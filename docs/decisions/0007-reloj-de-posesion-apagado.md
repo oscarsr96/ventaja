@@ -2,7 +2,7 @@
 
 ## Contexto
 
-Durante la capa 2 (2 de noviembre de 2026) se revisaron los relojes de posesión de las decisiones valoradas de los 10 partidos. 76 de los 1 351 tiros valorados tenían `shot_clock` exactamente 0,0. En 55 de ellos el reloj de partido estaba por debajo de 24 s: al final de un periodo el reloj de posesión se apaga y el tracking lo reporta como 0,0. En 50 tiros el reloj marca 0,0 durante más de 1 s antes de la suelta (hasta 19 s), algo imposible con un reloj en marcha.
+Durante la capa 2 (2 de noviembre de 2026) se revisaron los relojes de posesión de las decisiones valoradas de los 10 partidos. 76 de los 1 351 tiros valorados tenían `shot_clock` exactamente 0,0. En 55 de ellos el reloj de partido estaba por debajo de 24 s: al final de un periodo el reloj de posesión se apaga y el tracking lo reporta como 0,0. Así que 0,0 significa reloj de posesión apagado, sobre todo en situaciones de final de periodo (55 de 76). En 50 tiros el reloj marca 0,0 durante más de 1 s antes de la suelta (hasta 19 s), algo imposible con un reloj en marcha.
 
 La capa 1 trata `shot_clock < SHOT_CLOCK_MIN_PASS` (2 s) como «ningún pase viable» (ADR-0004), así que 76 de sus 116 decisiones sin lectura eran este artefacto. La curva de la capa 2 lo heredaba: por ejemplo, en `shot-191313-4-132` el reloj está a 0,0 los últimos 3 s, los pases quedaban anulados y la curva contaba un «momento perdido» de 4,6 s que en realidad era el reloj apagado.
 
@@ -16,7 +16,22 @@ En `Aligner._build` (`decision/align.py`), un `shot_clock` bruto igual a `SHOT_C
 
 Un reloj de 0,4 s sigue siendo 0,4 s: solo el 0,0 exacto cambia. Se elige esta regla frente a usar el reloj de partido (apagado si `game_clock < 24`) porque cubre también los 21 tiros con el reloj a 0,0 fuera de ese caso y no necesita otra fuente.
 
-Un tiro sobre la bocina de posesión con el reloj exactamente a 0,0 también pasa a `None`. Es inofensivo: el reloj llega a 0,0 en la suelta o después, mientras que el frame de decisión es anterior (0,4 s en `gather`, hasta 2,4 s en finalizaciones), así que en ese frame el reloj aún marca un valor positivo; y si alguno quedara a 0,0, perderlo solo quita la anulación de unos pases que de todos modos tienen un valor bajo en esa situación.
+**Enmienda (2026-11-02, R18): el reloj que se agota sigue en 0,0.** La versión original decía que un tiro sobre la bocina con el reloj a 0,0 era inofensivo porque en el frame de decisión el reloj aún marcaría un valor positivo. Los datos lo contradicen. Se buscaron las decisiones valoradas con `shot_clock` nulo cuyo reloj bruto, en los 25 frames anteriores al frame de decisión, marcaba un valor positivo de 1 s o menos. Son 8, y en las 8 el reloj baja 0,04 por frame hasta 0,0 entre 2 y 14 frames antes de la decisión y se queda en 0,0 hasta la suelta. En ninguna se trata de un final de periodo: el reloj de partido marca entre 51,8 y 333,6 s. Cifras de la regla original (sin la enmienda):
+
+| tiro | regla | periodo | reloj de partido en la decisión | frames desde la última lectura positiva | coste | `good_read` |
+|---|---|---:|---:|---:|---:|---|
+| `shot-178442-3-90` | gather | 3 | 262,2 s | 14 | 0,570 | no |
+| `shot-178442-1-18` | gather | 1 | 284,7 s | 8 | 0,403 | no |
+| `shot-178442-4-128` | last_dribble | 4 | 194,1 s | 5 | 0,393 | no |
+| `shot-178442-4-119` | gather | 4 | 333,6 s | 11 | 0,161 | no |
+| `shot-114243-3-111` | last_dribble | 3 | 79,9 s | 7 | 0,017 | no |
+| `shot-114234-2-68` | gather | 2 | 51,8 s | 2 | 0 | sí |
+| `shot-184439-4-124` | gather | 4 | 272,4 s | 5 | 0 | sí |
+| `shot-188630-4-122` | gather | 4 | 181,8 s | 3 | 0 | sí |
+
+Son relojes que se agotan, no relojes apagados. `Aligner._build` distingue ahora los dos casos: un 0,0 al que se llega por una cuenta atrás (alguna lectura positiva y ninguna subida) dentro de los `SHOT_CLOCK_EXPIRY_LOOKBACK` = 25 frames anteriores (1 s) sigue siendo 0,0, «agotado», y anula los pases (ADR-0004). Solo un 0,0 sin esa cuenta atrás es «apagado» (`None`). La ventana de velocidad ya lee ±2 frames; para el reloj, `snapshot` hace una lectura aparte de dos columnas (`frame_idx`, `shot_clock`) en `[f − 25, f − 1]`, y solo cuando la lectura del frame es 0,0. `window` amplía su única lectura 25 frames hacia atrás.
+
+Con una ventana más larga aparecen 6 decisiones más que llegan a 0,0 por cuenta atrás, entre 33 y 88 frames antes de la decisión: `shot-188630-1-1` (coste 0,80), `shot-178442-1-33` (0,59), `shot-178442-3-100` (0,55), `shot-184439-2-68` (0,35), `shot-191313-3-104` (0,10) y `shot-191313-4-132` (0,01). Se dejan como «apagado» a propósito. En todas el reloj de partido sigue corriendo durante más de 1 s con el reloj de posesión a 0,0 antes de la suelta, algo que no pasa con una violación real (el juego se para): lo más probable es que el tracking no registrara un reinicio del reloj. Un reloj que llegó a 0,0 hace más de 1 s no es una base fiable para anular los pases. También hay casos dudosos dentro del segundo de margen: incluso allí el reloj de partido sigue corriendo hasta la suelta, así que la enmienda supone que el reloj de posesión iba unas décimas adelantado respecto a la bocina real. Con 0,5 s o menos en el reloj, de todos modos no hay tiempo para un pase.
 
 ## Consecuencias
 

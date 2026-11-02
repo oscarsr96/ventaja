@@ -7,8 +7,9 @@ from typer.testing import CliRunner
 from ventaja.cli import app
 from ventaja.config import Settings
 from ventaja.data.load import load_events, load_tracking
-from ventaja.decision.align import Aligner
+from ventaja.decision.align import Aligner, _shot_clock
 from ventaja.errors import DataNotFoundError, NoTrackingError, VentajaError
+from ventaja.value.params import SHOT_CLOCK_EXPIRY_LOOKBACK
 
 SHOT_ID = "shot-114243-1-0"
 SHOT_FRAME = 3895
@@ -188,15 +189,53 @@ def test_window_across_possession_boundary_orients_each_frame_by_its_possession(
 def test_shot_clock_of_zero_means_off(
     built_fixture: Settings, raw: float, expected: float | None
 ) -> None:
-    """ADR-0007: a raw shot clock of exactly 0.0 is the clock switched off, so it is unknown."""
+    """ADR-0007: a raw shot clock of exactly 0.0, not reached by a countdown, is off: unknown."""
     a = Aligner(114243, built_fixture)
+    off = pl.col("frame_idx").is_between(SHOT_FRAME - SHOT_CLOCK_EXPIRY_LOOKBACK, SHOT_FRAME - 1)
     a._tracking = a._tracking.with_columns(
         shot_clock=pl.when(pl.col("frame_idx") == SHOT_FRAME)
         .then(pl.lit(raw))
+        .when(off)
+        .then(pl.lit(0.0))
         .otherwise(pl.col("shot_clock"))
     )
-    s = a.snapshot(SHOT_FRAME)
-    if expected is None:
-        assert s.shot_clock is None
-    else:
-        assert s.shot_clock == pytest.approx(expected)
+    for s in (a.snapshot(SHOT_FRAME), a.window(SHOT_FRAME, SHOT_FRAME)[0]):
+        if expected is None:
+            assert s.shot_clock is None
+        else:
+            assert s.shot_clock == pytest.approx(expected)
+
+
+def test_shot_clock_that_runs_out_stays_zero(built_fixture: Settings) -> None:
+    """ADR-0007: a 0.0 reached by a countdown within the lookback is an expired clock."""
+    a = Aligner(114243, built_fixture)
+    zero_from = SHOT_FRAME - 5  # 0.04 s per frame down to 0.0 five frames before
+    a._tracking = a._tracking.with_columns(
+        shot_clock=pl.when(pl.col("frame_idx") >= zero_from)
+        .then(pl.lit(0.0))
+        .otherwise(((zero_from - pl.col("frame_idx")) * 0.04).cast(pl.Float64))
+    )
+    assert a.snapshot(SHOT_FRAME).shot_clock == 0.0
+    assert a.window(SHOT_FRAME, SHOT_FRAME)[0].shot_clock == 0.0
+    # beyond the lookback the same zero is read as off
+    late = zero_from + SHOT_CLOCK_EXPIRY_LOOKBACK + 1
+    assert a.snapshot(late).shot_clock is None
+    assert a.window(late, late)[0].shot_clock is None
+
+
+@pytest.mark.parametrize(
+    ("raw", "history", "expected"),
+    [
+        (None, [], None),
+        (12.3, [], 12.3),
+        (0.0, [], None),  # nothing before it: off
+        (0.0, [0.0, 0.0, None], None),  # zero all along: off
+        (0.0, [0.12, 0.08, 0.04, 0.0], 0.0),  # countdown: expired
+        (0.0, [0.12, None, 0.04], 0.0),  # missing readings are skipped
+        (0.0, [0.0, 0.3, 0.0], None),  # rises before falling: not a countdown
+    ],
+)
+def test_shot_clock_rule(
+    raw: float | None, history: list[float | None], expected: float | None
+) -> None:
+    assert _shot_clock(raw, history) == expected
