@@ -194,6 +194,9 @@ def snapshot(
     game: Annotated[
         int | None, typer.Option("--game", help="Game id (parsed from the shot id if omitted).")
     ] = None,
+    decision: Annotated[
+        bool, typer.Option("--decision", help="Use the decision frame instead of the release.")
+    ] = False,
 ) -> None:
     """Print the offense-oriented snapshot at a shot's frame; the shooter is marked *."""
     try:
@@ -201,10 +204,13 @@ def snapshot(
         game_id = game if game is not None else _game_of_shot(shot_id)
         aligner = Aligner(game_id, settings)
         shooter = aligner.shot(shot_id)["shooter_id"]
-        snap = aligner.snapshot_for_shot(shot_id)
+        chosen = aligner.decision_frame(shot_id) if decision else None
+        snap = aligner.snapshot_for_shot(shot_id, decision=decision)
     except VentajaError as exc:
         typer.echo(f"error: {exc}", err=True)
         raise typer.Exit(code=1) from exc
+    if chosen is not None:
+        typer.echo(f"decision frame {chosen.frame_idx} ({chosen.rule})")
     shot_clock = "-" if snap.shot_clock is None else f"{snap.shot_clock:.2f}"
     typer.echo(
         f"frame {snap.frame_idx}  period {snap.period}  "

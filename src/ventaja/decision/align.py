@@ -11,8 +11,10 @@ import polars as pl
 
 from ventaja.config import FPS, Settings
 from ventaja.data.load import load_events, load_game, load_tracking
+from ventaja.decision.frame import decision_frame
 from ventaja.errors import DataNotFoundError, NoTrackingError, VentajaError
 from ventaja.geometry.court import orient_frame
+from ventaja.model.decision import DecisionFrame
 from ventaja.model.snapshot import BallPos, PlayerPos, Snapshot
 
 
@@ -85,7 +87,12 @@ class Aligner:
         self._shots = load_events(game_id, "shots", settings)
         game = load_game(game_id, settings)
         self._team_of_side = {"home": game.home.team_id, "away": game.away.team_id}
+        self._touches = load_events(game_id, "touches", settings)
+        self._dribbles = load_events(game_id, "dribbles", settings)
         self._tracking = load_tracking(game_id, settings)
+        self._tracked_frames = frozenset(
+            self._tracking.select("frame_idx").unique().collect()["frame_idx"].to_list()
+        )
 
     def possession_at(self, frame_idx: int) -> dict[str, Any] | None:
         """The possession row containing ``frame_idx``, or None.
@@ -131,8 +138,25 @@ class Aligner:
             raise DataNotFoundError(f"shot {shot_id} not found in game {self.game_id}")
         return hit.row(0, named=True)
 
-    def snapshot_for_shot(self, shot_id: str) -> Snapshot:
+    def decision_frame(self, shot_id: str) -> DecisionFrame:
+        """The decision frame of a shot (ADR-0003), from its touch and dribbles."""
+        shot = self.shot(shot_id)
+        touch_id = shot.get("touch_id")
+        touch: dict[str, Any] | None = None
+        dribble_frames: list[int] = []
+        if touch_id is not None:
+            hit = self._touches.filter(pl.col("id") == touch_id)
+            touch = hit.row(0, named=True) if hit.height else None
+            dribble_frames = sorted(
+                self._dribbles.filter(pl.col("touch_id") == touch_id)["frame"].to_list()
+            )
+        return decision_frame(shot, touch, dribble_frames, self._tracked_frames.__contains__)
+
+    def snapshot_for_shot(self, shot_id: str, *, decision: bool = False) -> Snapshot:
         """Snapshot at the shot's ``start_frame``, oriented by the shot's own possession.
+
+        With ``decision=True`` the snapshot is taken at the shot's decision frame instead
+        (ADR-0003); an excluded shot raises VentajaError with the reason.
 
         The possession is looked up by the shot's ``possession_id``, not by frame: some shots
         fall outside their possession's frame span (e.g. end-of-period possessions with
@@ -146,6 +170,11 @@ class Aligner:
                 f"game {self.game_id}: possession {possession_id} of shot {shot_id} not found"
             )
         frame_idx = int(shot["start_frame"])
+        if decision:
+            chosen = self.decision_frame(shot_id)
+            if chosen.frame_idx is None:
+                raise VentajaError(f"shot {shot_id} has no decision frame: {chosen.reason}")
+            frame_idx = chosen.frame_idx
         return self._build(self._frame_rows(frame_idx), frame_idx, hit.row(0, named=True))
 
     def window(self, start: int, end: int) -> list[Snapshot]:
