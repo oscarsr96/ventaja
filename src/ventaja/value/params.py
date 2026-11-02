@@ -23,3 +23,15 @@ EXCLUDED_TYPES = ("tip",)
 
 # Prior shrinkage strength: pseudo-attempts at the league rate added to a player's record.
 K_SHRINK = 20
+
+# Pass projection: the receiver is evaluated where he will be when the ball arrives.
+PASS_SPEED = 40.0  # ft/s, assumed ball speed of a pass
+FLIGHT_MIN = 0.2  # s, lower clamp of the flight time
+FLIGHT_MAX = 1.0  # s, upper clamp of the flight time
+PROJECTION_CAP = 10.0  # ft, maximum displacement applied to a receiver
+# Geometry of defensive pressure.
+LANE_WIDTH = 3.0  # ft, a defender closer than this to the passer->receiver segment is in the lane
+LANE_END_MARGIN = 2.0  # ft, segment ends ignored (a defender guarding passer or receiver)
+BETWEEN_WIDTH = 3.0  # ft, a defender this close to the player->hoop segment is between them
+# Shot clock below this many seconds sets the ``shot_clock_low`` flag.
+SHOT_CLOCK_LOW = 4.0
