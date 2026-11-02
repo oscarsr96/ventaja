@@ -41,6 +41,25 @@ uv run ventaja review sample --all --n 20 --seed 7 --out docs/review/2026-11-sam
 
 On the 10 games, `cost_falls_with_clock` fails (mean cost 0.163, 0.204 and 0.193 for 24-14, 14-6 and 6-0 s). It is deliberately not tuned (ADR-0004): it is a diagnostic for the live review session ([docs/review/README.md](docs/review/README.md)), so CI passes it with `--allow-fail` while the other three checks block.
 
+## Lost moments
+
+Layer 2 replays the layer-1 valuation along the possession: every 0.2 s from the frontcourt to the release, the ball handler's four passes are valued and discounted, and the curve marks an advantage wherever the best pass beats the shot actually taken by at least 0.10 points. The window is the last run of advantage held by one ball handler before the decision frame, and the verdict says whether it had already closed (`late`), was still open when he decided (`during`), or never existed (`none`). Method: [ADR-0006](docs/decisions/0006-curva-de-ventaja-y-reel.md).
+
+![Advantage curve of shot-179612-1-7](docs/figures/curve-shot-179612-1-7.png)
+
+*Provisional figure 2: a 1.6 s window (orange) where a pass was worth 1.40 points against a 1.07 shot, closed 2.2 s before the decision.*
+
+Over the 1,351 valued shots, 41% are `during`, 39% `late`, 17% `none` and 2% have too short a curve to judge; 216 of the `late` windows belong to the shooter, who kept the ball while they closed.
+
+```bash
+uv run ventaja curves show shot-114243-1-0
+uv run ventaja clip shot-114243-1-0 --out clip.gif      # court + curve; needs `data build`
+uv run ventaja reel rankings --all --n 10                # worst decisions, best reads, lost moments
+uv run ventaja reel build --all --n 10 --out docs/reel/2026-11
+```
+
+`artifacts/curves/` ships in the repo, read with the same rule as the decisions; regenerate it with `uv run ventaja curves build --all --out artifacts/curves` (about 4 minutes) after the model or the decisions change.
+
 ## Development
 
 ```bash

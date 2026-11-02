@@ -31,8 +31,9 @@ Python >=3.12, managed with `uv`. Layout `src/ventaja/`. polars, duckdb, pydanti
 - Each layer is closed with tests + an ADR + a CLI command.
 
 - All geometry is in offense orientation; `left_hoop` is read only in `decision/align.py` (ADR-0001).
-- Every layer-1 constant lives in `src/ventaja/value/params.py` and changes only via an ADR.
-- `models/` and `artifacts/` are derived, versioned artifacts: regenerate them with `ventaja model train --all` `ventaja decisions build --all --out artifacts/decisions` and `ventaja curves build --all --out artifacts/curves`, never edit them by hand.
+- Every constant of layers 1 and 2 (curve, clip, rankings, reel) lives in `src/ventaja/value/params.py` and changes only via an ADR.
+- A raw shot clock of 0.0 is the clock switched off: `Aligner` reads it as `None` (unknown), never as zero (ADR-0007).
+- `models/` and `artifacts/` are derived, versioned artifacts: regenerate them in this order with `ventaja model train --all`, `ventaja decisions build --all --out artifacts/decisions` and `ventaja curves build --all --out artifacts/curves` (`artifacts/curves/` depends on both), never edit them by hand.
 
 ## References
 

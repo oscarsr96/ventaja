@@ -40,6 +40,9 @@ jobs:
       # Check 1 is a live-session diagnostic (ADR-0004); checks 2-4 block.
       - run: uv run ventaja validate decisions --game 114243 --allow-fail cost_falls_with_clock
       - run: uv run ventaja decisions show shot-114243-1-0
+      - run: uv run ventaja curves build --game 114243
+      - run: uv run ventaja clip shot-114243-1-0 --out /tmp/clip.gif
+      - run: uv run ventaja reel rankings --game 114243 --n 3
 
   pipeline-all:
     if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
@@ -57,3 +60,6 @@ jobs:
       - run: uv run ventaja decisions build --all
       # Check 1 is a live-session diagnostic (ADR-0004); checks 2-4 block.
       - run: uv run ventaja validate decisions --all --allow-fail cost_falls_with_clock
+      # Curves to /tmp: the versioned artifacts/curves/ is never overwritten.
+      - run: uv run ventaja curves build --all --out /tmp/curves
+      - run: uv run ventaja reel rankings --all
