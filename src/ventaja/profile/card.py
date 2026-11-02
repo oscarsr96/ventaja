@@ -17,7 +17,7 @@ from typing import Any
 import polars as pl
 
 from ventaja.config import Settings
-from ventaja.data.build import _write_parquet_atomic
+from ventaja.data.build import write_parquet_atomic
 from ventaja.data.load import (
     decision_files,
     load_aggregates,
@@ -260,7 +260,7 @@ def _optional(load: Callable[[], pl.DataFrame]) -> pl.DataFrame | None:
 def _write(
     cards: Sequence[PlayerCard | TeamCard], schema: dict[str, pl.DataType], path: Path
 ) -> None:
-    _write_parquet_atomic(pl.DataFrame([flatten_card(c) for c in cards], schema=schema), path)
+    write_parquet_atomic(pl.DataFrame([flatten_card(c) for c in cards], schema=schema), path)
 
 
 def build_players(

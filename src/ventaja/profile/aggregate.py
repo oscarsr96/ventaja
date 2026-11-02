@@ -13,6 +13,7 @@ from typing import Any
 
 import polars as pl
 
+from ventaja.value.clock import clock_bucket_expr
 from ventaja.value.params import (
     ADVANTAGE_TOLERANCE,
     ALT_TYPES,
@@ -21,22 +22,9 @@ from ventaja.value.params import (
     MIN_RANK_CONFIDENCE,
 )
 
-__all__ = ["clock_bucket_expr", "league_row", "player_table", "team_table"]
+__all__ = ["league_row", "player_table", "team_table"]
 
 _SUMMARY_COLUMNS = ["shot_id", "verdict", "release_lag_seconds", "held_to_decision"]
-
-
-def clock_bucket_expr(index: int) -> pl.Expr:
-    """Membership of ``shot_clock`` in ``CLOCK_BUCKETS[index]``.
-
-    The first bucket has no upper bound (a clock slightly above 24 still opens the possession);
-    the last one includes its lower bound 0.0.
-    """
-    _, lo, hi = CLOCK_BUCKETS[index]
-    clock = pl.col("shot_clock")
-    if index == 0:
-        return clock > lo
-    return (clock >= lo if index == len(CLOCK_BUCKETS) - 1 else clock > lo) & (clock <= hi)
 
 
 def _joined(decisions: pl.DataFrame, summaries: pl.DataFrame) -> pl.DataFrame:

@@ -4,7 +4,7 @@ from typing import Protocol
 
 import polars as pl
 
-from ventaja.profile.aggregate import clock_bucket_expr
+from ventaja.value.clock import clock_bucket_expr
 from ventaja.value.params import CLOCK_BUCKETS
 
 __all__ = ["checks"]

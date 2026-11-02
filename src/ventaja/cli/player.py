@@ -91,7 +91,14 @@ _RANK_HEADER = (
 
 @app.command("rank")
 def player_rank(
-    min_shots: Annotated[int, typer.Option("--min-shots", min=1, help="Minimum shots.")] = 1,
+    min_shots: Annotated[
+        int,
+        typer.Option(
+            "--min-shots",
+            min=1,
+            help="Minimum valued shots (n_shots); the phrase gate counts readable shots instead.",
+        ),
+    ] = 1,
     n: Annotated[int, typer.Option("--n", min=1, help="Rows to print.")] = 20,
     by: Annotated[str, typer.Option("--by", help=f"Sort key: {', '.join(RANK_KEYS)}.")] = (
         "mean_cost"

@@ -250,12 +250,15 @@ def build_tracking(game_id: int, settings: Settings) -> Path:
     return out
 
 
-def _write_parquet_atomic(df: pl.DataFrame, path: Path) -> None:
+def write_parquet_atomic(df: pl.DataFrame, path: Path) -> None:
     """Write ``df`` to a ``.tmp`` sibling and rename it, so readers never see a partial file."""
     path.parent.mkdir(parents=True, exist_ok=True)
     tmp = path.with_name(path.name + ".tmp")
     df.write_parquet(tmp)
     tmp.replace(path)
+
+
+_write_parquet_atomic = write_parquet_atomic  # private alias kept for existing callers
 
 
 def _accumulate(new: pl.DataFrame, path: Path, game_id: int) -> pl.DataFrame:
