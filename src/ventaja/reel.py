@@ -26,6 +26,7 @@ from ventaja.model.decision import CurveSummary
 from ventaja.value.model import ValueModel
 from ventaja.value.params import (
     CLIP_BEFORE_S,
+    LATE_MIN_CLOCK,
     MIN_RANK_ADVANTAGE,
     MIN_RANK_CONFIDENCE,
     REEL_LATE_LEAD_S,
@@ -167,11 +168,13 @@ def rank_tables(
     ``worst`` and ``best`` also need ``good_read`` not null (some pass was viable).
     ``worst``: largest ``cost``. ``best``: ``good_read`` with the largest ``margin =
     shot_value - best_alt_value``. ``late`` (lost moments): curve verdict ``late`` with
-    ``held_to_decision`` and ``advantage_seconds >= MIN_RANK_ADVANTAGE``, by
-    ``release_lag_seconds``; no viable pass is needed at the decision (the advantage has
-    often closed by then). Each holds the top ``n`` (ties by ``shot_id``) with a 1-based
-    ``rank``; names fall back to ids without metadata tables, and ``headline_es`` names the
-    handler of a late window that is not the shooter's. Raises ValueError if ``n < 1``.
+    ``held_to_decision``, ``advantage_seconds >= MIN_RANK_ADVANTAGE`` and a shot clock of at
+    least ``LATE_MIN_CLOCK`` (unknown clocks stay), by ``lost_value = window_peak_value -
+    shot_value`` (the summary's), then ``release_lag_seconds``; no viable pass is needed at
+    the decision (the advantage has often closed by then). Each holds the top ``n`` (ties by
+    ``shot_id``) with a 1-based ``rank``; names fall back to ids without metadata tables, and
+    ``headline_es`` names the handler of a late window that is not the
+    shooter's. Raises ValueError if ``n < 1``.
     """
     if n < 1:
         raise ValueError(f"n must be at least 1, got {n}")
@@ -182,7 +185,11 @@ def rank_tables(
     teams, labels = _teams(games)
     df = (
         valued.filter(trusted)
-        .join(summaries.select(_SUMMARY_COLUMNS), on="shot_id", how="left")
+        .join(
+            summaries.select(*_SUMMARY_COLUMNS, summary_shot_value="shot_value"),
+            on="shot_id",
+            how="left",
+        )
         .with_columns(
             period=pl.col("shot_id").str.split("-").list.get(2).cast(pl.Int64),
             margin=pl.col("shot_value") - pl.col("best_alt_value"),
@@ -203,22 +210,28 @@ def rank_tables(
         )
     )
 
-    def top(frame: pl.DataFrame, by: str, columns: list[str]) -> pl.DataFrame:
-        ranked = frame.sort([by, "shot_id"], descending=[True, False]).head(n)
+    def top(frame: pl.DataFrame, by: str | list[str], columns: list[str]) -> pl.DataFrame:
+        keys = [by] if isinstance(by, str) else by
+        ranked = frame.sort([*keys, "shot_id"], descending=[*[True] * len(keys), False]).head(n)
         ranked = ranked.with_columns(rank=pl.int_range(1, ranked.height + 1, dtype=pl.Int64))
         return ranked.select(_BASE + columns + _TAIL)
 
     readable = df.filter(pl.col("good_read").is_not_null())
     worst = top(readable, "cost", ["cost"])
     best = top(readable.filter(pl.col("good_read")), "margin", ["margin"])
+    # Lost moments rank by the value lost (the best pass of the window minus the shot), the
+    # lag breaks ties. Under LATE_MIN_CLOCK the shot clock, not the shooter, closed the window;
+    # an unknown clock does not exclude.
+    late_rows = df.filter(
+        (pl.col("verdict") == "late")
+        & pl.col("held_to_decision").fill_null(False)
+        & (pl.col("advantage_seconds") >= MIN_RANK_ADVANTAGE)
+        & (pl.col("shot_clock").is_null() | (pl.col("shot_clock") >= LATE_MIN_CLOCK))
+    ).with_columns(lost_value=pl.col("window_peak_value") - pl.col("summary_shot_value"))
     late = top(
-        df.filter(
-            (pl.col("verdict") == "late")
-            & pl.col("held_to_decision").fill_null(False)
-            & (pl.col("advantage_seconds") >= MIN_RANK_ADVANTAGE)
-        ),
-        "release_lag_seconds",
-        ["cost", "window_peak_value"],
+        late_rows,
+        ["lost_value", "release_lag_seconds"],
+        ["cost", "window_peak_value", "lost_value"],
     )
     return worst, best, late, low
 

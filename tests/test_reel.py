@@ -15,7 +15,7 @@ from ventaja.decision.cost import DECISION_SCHEMA
 from ventaja.decision.curve import SUMMARY_SCHEMA
 from ventaja.errors import DataNotFoundError
 from ventaja.reel import build_reel, rank_tables, rankings, skipped_clips
-from ventaja.value.params import MIN_RANK_ADVANTAGE, MIN_RANK_CONFIDENCE
+from ventaja.value.params import LATE_MIN_CLOCK, MIN_RANK_ADVANTAGE, MIN_RANK_CONFIDENCE
 
 GAME_ID = 114243
 
@@ -61,7 +61,14 @@ def _summary(shot_id: str, **kw: Any) -> dict[str, Any]:
     return row | kw
 
 
-def _late(shot_id: str, lag: float, advantage: float = 1.0, held: bool = True) -> dict[str, Any]:
+def _late(
+    shot_id: str,
+    lag: float,
+    advantage: float = 1.0,
+    held: bool = True,
+    peak: float = 1.4,
+    **kw: Any,
+) -> dict[str, Any]:
     return _summary(
         shot_id,
         verdict="late",
@@ -71,7 +78,8 @@ def _late(shot_id: str, lag: float, advantage: float = 1.0, held: bool = True) -
         window_start=400,
         window_end=450,
         window_handler_id=10,
-        window_peak_value=1.4,
+        window_peak_value=peak,
+        **kw,
     )
 
 
@@ -124,6 +132,37 @@ def _synthetic() -> tuple[pl.DataFrame, pl.DataFrame]:
         schema=SUMMARY_SCHEMA,
     )
     return decisions, summaries
+
+
+def _late_table(rows: list[tuple[str, dict[str, Any], dict[str, Any]]]) -> pl.DataFrame:
+    decisions = pl.DataFrame([_decision(sid, **d) for sid, d, _ in rows], schema=DECISION_SCHEMA)
+    summaries = pl.DataFrame([s for _, _, s in rows], schema=SUMMARY_SCHEMA)
+    return rank_tables(decisions, summaries, PLAYERS, GAMES, n=10)[2]
+
+
+def test_late_ranking_orders_by_lost_value() -> None:
+    # shot_value 0.9 in every summary; lost_value = peak - 0.9
+    late = _late_table(
+        [
+            ("shot-1-1-0", {}, _late("shot-1-1-0", lag=5.0, peak=1.0)),  # lost 0.1, long lag
+            ("shot-1-1-1", {}, _late("shot-1-1-1", lag=0.5, peak=1.9)),  # lost 1.0
+            ("shot-1-1-2", {}, _late("shot-1-1-2", lag=1.0, peak=1.4)),  # lost 0.5
+        ]
+    )
+    assert late["shot_id"].to_list() == ["shot-1-1-1", "shot-1-1-2", "shot-1-1-0"]
+    assert late["lost_value"].to_list() == pytest.approx([1.0, 0.5, 0.1])
+
+
+def test_late_ranking_filters_low_clock_but_keeps_null() -> None:
+    late = _late_table(
+        [
+            ("shot-1-1-0", {"shot_clock": 1.0}, _late("shot-1-1-0", lag=1.0, peak=1.9)),
+            ("shot-1-1-1", {"shot_clock": None}, _late("shot-1-1-1", lag=1.0, peak=1.5)),
+            ("shot-1-1-2", {"shot_clock": 3.0}, _late("shot-1-1-2", lag=1.0, peak=1.4)),
+            ("shot-1-1-3", {"shot_clock": LATE_MIN_CLOCK}, _late("shot-1-1-3", lag=1.0, peak=1.2)),
+        ]
+    )
+    assert late["shot_id"].to_list() == ["shot-1-1-1", "shot-1-1-2", "shot-1-1-3"]
 
 
 def test_rankings_exclude_low_confidence() -> None:

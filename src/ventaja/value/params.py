@@ -74,6 +74,9 @@ CLIP_AFTER_S = 1.0  # s shown after the release, so the ball's flight is visible
 # Rankings and reel (layer 2): which decisions are trusted enough to rank, and the late clips.
 MIN_RANK_CONFIDENCE = 0.8  # share of the ten players detected at the decision frame
 MIN_RANK_ADVANTAGE = 0.4  # s, a lost moment needs an advantage of at least two sampled rows
+LATE_MIN_CLOCK = (
+    2.5  # s of possession at the decision frame below which a lost moment is not ranked
+)
 REEL_LATE_LEAD_S = 1.0  # s shown before a late clip's window starts
 REEL_LATE_MAX_BEFORE_S = 12.0  # s, cap of a late clip's lead before the decision frame
 

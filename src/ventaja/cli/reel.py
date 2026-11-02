@@ -19,7 +19,7 @@ def _reel_games(game: list[int] | None, all_games: bool) -> list[int]:
     return list(GAME_IDS) if all_games else list(game or [])
 
 
-_METRIC = {"worst": "cost", "best": "margin", "late": "release_lag_seconds"}
+_METRIC = {"worst": "cost", "best": "margin", "late": "lost_value"}
 
 
 @app.command("rankings")
