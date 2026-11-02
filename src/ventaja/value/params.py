@@ -55,5 +55,5 @@ CUT_SPEED = 4.0  # ft/s toward the hoop that makes a paint option a "cut"
 
 # Advantage curve (layer 2): the best option of the ball handler sampled along the possession.
 CURVE_STEP_FRAMES = 5  # frames between curve samples (25 fps / 5 = 5 Hz), counted back from release
-ADVANTAGE_TOLERANCE = 0.10  # pts, an option is still "the advantage" while within this of the peak
+ADVANTAGE_TOLERANCE = 0.10  # pts, a row is advantage when its best pass beats the shot by this
 CURVE_MIN_ROWS = 3  # curves with fewer rows get no advantage window (verdict ``no_window``)

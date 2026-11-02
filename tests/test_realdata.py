@@ -141,3 +141,62 @@ def test_lane_rule_after_the_live_session(real_settings: Settings) -> None:
         row = passes.filter((pl.col("shot_id") == shot_id) & (pl.col("player_id") == player_id))
         assert row.height == 1, shot_id
         assert row["lane_blocked"][0] is expected, shot_id
+
+
+def test_curve_summaries_cover_every_valued_shot(real_settings: Settings) -> None:
+    """ADR-0006: one summary per valued shot, and the curve agrees with layer 1 where it meets it.
+
+    For ``gather`` shots whose curve has a row exactly at the decision frame (the frame is a
+    sampled one) and whose handler there is the shooter, the four passes are the same as in
+    ``decide``; the shot row is not (``decide`` takes zone/points from the event, the curve from
+    the position: 77 of 678 rows differ, by up to 0.70 pts), so only the passes are compared:
+    the row's ``best_pass_value`` (null when no pass is viable) equals the best adjusted pass
+    of the decisions options. Measured: 677 of 678 rows agree exactly; the other one
+    (``shot-114169-3-104``) is the only row where the touches give the ball to a teammate of
+    the shooter at the decision frame, so the curve values that teammate's passes.
+    """
+    from typing import get_args
+
+    from ventaja.data.load import (
+        load_curve_summaries,
+        load_curves,
+        load_decision_options,
+        load_decisions,
+    )
+    from ventaja.model.decision import Verdict
+
+    total, compared, other_handler = 0, 0, 0
+    for game_id in GAME_IDS:
+        valued = load_decisions(game_id, real_settings).filter(pl.col("rule") != "excluded")
+        summaries = load_curve_summaries(game_id, real_settings)
+        assert sorted(summaries["shot_id"]) == sorted(valued["shot_id"]), game_id
+        assert (summaries["advantage_seconds"] >= 0).all(), game_id
+        assert set(summaries["verdict"]) <= set(get_args(Verdict)), game_id
+        total += summaries.height
+        best_pass = (
+            load_decision_options(game_id, real_settings)
+            .filter(pl.col("option_type") == "pass")
+            .group_by("shot_id")
+            .agg(max_pass=pl.col("adjusted_value").max())
+        )
+        at_decision = (
+            load_curves(game_id, real_settings)
+            .join(
+                valued.filter(pl.col("rule") == "gather").select(
+                    "shot_id", "decision_frame", "shooter_id"
+                ),
+                left_on=["shot_id", "frame_idx"],
+                right_on=["shot_id", "decision_frame"],
+            )
+            .join(best_pass, on="shot_id")
+        )
+        other_handler += at_decision.filter(pl.col("handler_id") != pl.col("shooter_id")).height
+        at_decision = at_decision.filter(pl.col("handler_id") == pl.col("shooter_id"))
+        compared += at_decision.height
+        gap = (at_decision["best_pass_value"].fill_null(0.0) - at_decision["max_pass"]).abs()
+        assert gap.len() == 0 or float(gap.max()) <= 1e-6, game_id  # type: ignore[arg-type]
+    assert total == 1351
+    assert compared >= 600, f"only {compared} gather rows at the decision frame were compared"
+    assert other_handler <= 1, (
+        f"{other_handler} decision rows have a handler other than the shooter"
+    )

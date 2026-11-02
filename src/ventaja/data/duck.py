@@ -4,7 +4,7 @@ import duckdb
 
 from ventaja.config import Settings
 from ventaja.data.build import AGGREGATE_TABLES, EVENT_TABLES
-from ventaja.data.load import decision_files
+from ventaja.data.load import curve_files, decision_files
 
 META_TABLES: tuple[str, ...] = ("games", "players", "matches")
 
@@ -26,7 +26,8 @@ def connect(settings: Settings, *, read_only: bool = True) -> duckdb.DuckDBPyCon
 
     Tables without any built parquet get no view; ``decisions`` and ``decision_options``
     read ``decisions_dir`` (the build's decisions, else the packaged
-    ``artifacts/decisions/``). Views are the only objects created; ``read_only`` is kept for
+    ``artifacts/decisions/``); ``curves`` and ``curve_summaries`` likewise read
+    ``artifact_dir("curves")``. Views are the only objects created; ``read_only`` is kept for
     API stability (the connection is in-memory and nothing is persisted either way).
     """
     del read_only
@@ -45,4 +46,7 @@ def connect(settings: Settings, *, read_only: bool = True) -> duckdb.DuckDBPyCon
     decisions, options = decision_files(settings)
     _create_view(con, "decisions", [str(p) for p in decisions], union=True)
     _create_view(con, "decision_options", [str(p) for p in options], union=True)
+    curves, summaries = curve_files(settings)
+    _create_view(con, "curves", [str(p) for p in curves], union=True)
+    _create_view(con, "curve_summaries", [str(p) for p in summaries], union=True)
     return con

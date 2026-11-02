@@ -1,18 +1,27 @@
-from typing import Any
+from pathlib import Path
+from typing import Any, get_args
 
 import polars as pl
 import pytest
+from typer.testing import CliRunner
 
+from ventaja.cli import app
 from ventaja.config import Settings
+from ventaja.data import load as load_module
+from ventaja.data.duck import connect
+from ventaja.data.load import load_curve_summaries, load_curves, load_decisions
 from ventaja.decision import curve as curve_module
 from ventaja.decision.align import Aligner
 from ventaja.decision.curve import (
     CURVE_SCHEMA,
+    SUMMARY_SCHEMA,
+    build_curves,
     headline,
     possession_curve,
     summarize_curve,
 )
-from ventaja.model.decision import CurveSummary
+from ventaja.errors import DataNotFoundError
+from ventaja.model.decision import CurveSummary, Verdict
 from ventaja.value.model import ValueModel
 from ventaja.value.priors import Priors
 
@@ -357,3 +366,152 @@ def test_headline_es_en() -> None:
     )
     assert headline(none, "en") == "Nothing beat the shot during the possession"
     assert headline(short, "en") == "Not enough curve (2 frames)"
+
+
+# --- artifacts, loaders, SQL views and CLI -------------------------------------------------
+
+
+def test_build_curves_fixture(fixture_curves_built: Settings) -> None:
+    settings = fixture_curves_built
+    curves = pl.read_parquet(settings.curves_parquet(114243))
+    summaries = pl.read_parquet(settings.curve_summaries_parquet(114243))
+    assert settings.curves_parquet(114243) == settings.build_dir / "curves" / "114243.parquet"
+    assert settings.curve_summaries_parquet(114243) == (
+        settings.build_dir / "curves" / "114243.summary.parquet"
+    )
+    assert dict(curves.schema) == CURVE_SCHEMA
+    assert dict(summaries.schema) == SUMMARY_SCHEMA
+    valued = load_decisions(114243, settings).filter(pl.col("rule") != "excluded")
+    assert valued.height == 17 and summaries.height == 17
+    assert sorted(summaries["shot_id"]) == sorted(valued["shot_id"])
+    per_shot = curves.group_by("shot_id").len()
+    assert per_shot.height == 17 and per_shot["len"].min() >= 1  # type: ignore[operator]
+    assert set(summaries["verdict"]) <= set(get_args(Verdict))
+    assert summaries["headline_es"].null_count() == 0
+    assert summaries["headline_en"].null_count() == 0
+    assert (summaries["skipped_off_court"] >= 0).all()
+    assert (summaries["advantage_seconds"] >= 0).all()
+    # the summary's shot_value is the real shot's, from the decisions table
+    joined = summaries.join(valued, on="shot_id", suffix="_d")
+    assert (joined["shot_value"] - joined["shot_value_d"]).abs().max() == 0.0  # type: ignore[operator]
+    row = summaries.filter(pl.col("shot_id") == SHOT_ID).row(0, named=True)
+    summary = CurveSummary.model_validate({k: row[k] for k in CurveSummary.model_fields})
+    assert row["headline_es"] == headline(summary, "es")
+    assert row["headline_en"] == headline(summary, "en")
+
+
+def test_build_curves_out_dir_and_loaders(
+    fixture_curves_built: Settings,
+    trained_fixture_model: ValueModel,
+    fixture_priors: Priors,
+    tmp_path: Path,
+) -> None:
+    out = tmp_path / "packaged"
+    paths = build_curves(
+        114243,
+        fixture_curves_built,
+        model=trained_fixture_model,
+        priors=fixture_priors,
+        out_dir=out,
+    )
+    assert paths == (out / "114243.parquet", out / "114243.summary.parquet")
+    assert sorted(p.name for p in out.iterdir()) == ["114243.parquet", "114243.summary.parquet"]
+    assert load_module.artifact_dir("curves", fixture_curves_built) == (
+        fixture_curves_built.build_dir / "curves"
+    )
+    assert load_curves(114243, fixture_curves_built).equals(pl.read_parquet(paths[0]))
+    assert load_curve_summaries(114243, fixture_curves_built).equals(pl.read_parquet(paths[1]))
+    con = connect(fixture_curves_built)
+    assert con.sql("select count(distinct shot_id) from curves").fetchall()[0][0] == 17
+    assert con.sql("select count(*) from curve_summaries").fetchall()[0][0] == 17
+
+
+def test_load_curves_falls_back_to_artifacts(tmp_path: Path) -> None:
+    settings = Settings(data_dir=tmp_path, build_dir=tmp_path / "build")
+    assert load_module.artifact_dir("curves", settings) == load_module.ARTIFACTS_DIR / "curves"
+    assert load_module.artifact_dir("decisions", settings) == (
+        load_module.ARTIFACTS_DIR / "decisions"
+    )
+    summaries = load_curve_summaries(191313, settings)
+    curves = load_curves(191313, settings)
+    assert summaries.height > 0 and set(summaries["game_id"]) == {191313}
+    assert set(curves["shot_id"]) <= set(summaries["shot_id"])
+    curve_paths, summary_paths = load_module.curve_files(settings)
+    assert len(curve_paths) == 10 and len(summary_paths) == 10
+    assert not any(p.name.endswith(".summary.parquet") for p in curve_paths)
+
+
+def test_no_mixing_curves(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    artifacts = tmp_path / "artifacts"
+    (artifacts / "curves").mkdir(parents=True)
+    monkeypatch.setattr(load_module, "ARTIFACTS_DIR", artifacts)
+    pl.DataFrame({"shot_id": ["p2"]}).write_parquet(artifacts / "curves" / "2.parquet")
+    pl.DataFrame({"shot_id": ["p2"]}).write_parquet(artifacts / "curves" / "2.summary.parquet")
+    settings = Settings(data_dir=tmp_path, build_dir=tmp_path / "build")
+    built = settings.build_dir / "curves"
+    built.mkdir(parents=True)
+    # a summary file alone does not select the build dir
+    pl.DataFrame({"shot_id": ["s1"]}).write_parquet(built / "1.summary.parquet")
+    assert load_module.artifact_dir("curves", settings) == artifacts / "curves"
+    assert load_curves(2, settings)["shot_id"].to_list() == ["p2"]
+    pl.DataFrame({"shot_id": ["b1"]}).write_parquet(built / "1.parquet")
+    assert load_module.artifact_dir("curves", settings) == built
+    assert load_curves(1, settings)["shot_id"].to_list() == ["b1"]
+    with pytest.raises(DataNotFoundError, match="ventaja curves build --game 2"):
+        load_curves(2, settings)
+    with pytest.raises(DataNotFoundError, match="ventaja curves build --game 2"):
+        load_curve_summaries(2, settings)
+    assert load_module.curve_files(settings) == (
+        [built / "1.parquet"],
+        [built / "1.summary.parquet"],
+    )
+    con = connect(settings)
+    assert con.sql("select shot_id from curves").fetchall() == [("b1",)]
+    assert con.sql("select shot_id from curve_summaries").fetchall() == [("s1",)]
+
+
+def _env(monkeypatch: pytest.MonkeyPatch, settings: Settings) -> None:
+    monkeypatch.setenv("VENTAJA_DATA_DIR", str(settings.data_dir))
+    monkeypatch.setenv("VENTAJA_BUILD_DIR", str(settings.build_dir))
+
+
+def test_curves_cli_show(fixture_curves_built: Settings, monkeypatch: pytest.MonkeyPatch) -> None:
+    _env(monkeypatch, fixture_curves_built)
+    row = (
+        load_curve_summaries(114243, fixture_curves_built)
+        .filter(pl.col("shot_id") == SHOT_ID)
+        .row(0, named=True)
+    )
+    result = CliRunner().invoke(app, ["curves", "show", SHOT_ID])
+    assert result.exit_code == 0, result.output
+    assert row["headline_es"] in result.output
+    assert f"verdict {row['verdict']}" in result.output
+    assert "t_to_release" in result.output and "best_pass_value" in result.output
+    n_rows = load_curves(114243, fixture_curves_built).filter(pl.col("shot_id") == SHOT_ID).height
+    assert sum(line.lstrip().startswith("-") for line in result.output.splitlines()) >= n_rows - 1
+    missing = CliRunner().invoke(app, ["curves", "show", TIP_ID])
+    assert missing.exit_code == 1 and "not found" in missing.output
+    bad = CliRunner().invoke(app, ["curves", "show", "nope"])
+    assert bad.exit_code == 1
+
+
+def test_curves_cli_build(
+    fixture_curves_built: Settings,
+    trained_fixture_model: ValueModel,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    _env(monkeypatch, fixture_curves_built)
+    model_path = tmp_path / "m.json"
+    trained_fixture_model.save(model_path)
+    out = tmp_path / "cli"
+    result = CliRunner().invoke(
+        app,
+        ["curves", "build", "--game", "114243", "--model", str(model_path), "--out", str(out)],
+    )
+    assert result.exit_code == 0, result.output
+    assert "game 114243: 17 shots, 17 curves" in result.output
+    assert "late" in result.output and "no_window" in result.output
+    assert "median advantage" in result.output
+    assert sorted(p.name for p in out.iterdir()) == ["114243.parquet", "114243.summary.parquet"]
+    assert CliRunner().invoke(app, ["curves", "build"]).exit_code == 2

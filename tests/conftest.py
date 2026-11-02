@@ -6,6 +6,8 @@ import pytest
 from ventaja.config import Settings
 from ventaja.data.build import build_aggregates, build_events, build_meta, build_tracking
 from ventaja.decision.align import Aligner
+from ventaja.decision.cost import build_decisions
+from ventaja.decision.curve import build_curves
 from ventaja.value.features import shot_rows
 from ventaja.value.model import ValueModel, fit
 from ventaja.value.priors import Priors
@@ -41,6 +43,16 @@ def fixture_priors(built_fixture: Settings) -> Priors:
 def trained_fixture_model(built_fixture: Settings, fixture_priors: Priors) -> ValueModel:
     """A toy value model fitted on the fixture's shots (tests only)."""
     return fit(shot_rows(Aligner(FIXTURE_GAME_ID, built_fixture), fixture_priors))
+
+
+@pytest.fixture(scope="session")
+def fixture_curves_built(
+    built_fixture: Settings, trained_fixture_model: ValueModel, fixture_priors: Priors
+) -> Iterator[Settings]:
+    """``built_fixture`` with the fixture's decisions and curves built once (toy model)."""
+    build_decisions(FIXTURE_GAME_ID, built_fixture, model=trained_fixture_model)
+    build_curves(FIXTURE_GAME_ID, built_fixture, model=trained_fixture_model, priors=fixture_priors)
+    yield built_fixture
 
 
 FIXTURE_SHOT_COUNT = 20

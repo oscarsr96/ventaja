@@ -7,11 +7,14 @@ whether the shot came while it was there.
 """
 
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any, Literal
 
 import polars as pl
 
-from ventaja.config import FPS
+from ventaja.config import FPS, Settings
+from ventaja.data.build import _write_parquet_atomic
+from ventaja.data.load import load_decisions
 from ventaja.decision.align import Aligner
 from ventaja.decision.cost import classify_alternative, viability
 from ventaja.decision.handler import BallHandler
@@ -23,7 +26,15 @@ from ventaja.value.model import ValueModel
 from ventaja.value.params import ADVANTAGE_TOLERANCE, CURVE_MIN_ROWS, CURVE_STEP_FRAMES
 from ventaja.value.priors import Priors
 
-__all__ = ["CURVE_SCHEMA", "CurveResult", "headline", "possession_curve", "summarize_curve"]
+__all__ = [
+    "CURVE_SCHEMA",
+    "SUMMARY_SCHEMA",
+    "CurveResult",
+    "build_curves",
+    "headline",
+    "possession_curve",
+    "summarize_curve",
+]
 
 CURVE_SCHEMA: dict[str, Any] = {
     "shot_id": pl.String,
@@ -241,3 +252,76 @@ def headline(summary: CurveSummary, lang: Literal["es", "en"] = "es") -> str:
         d=edge,
         n=summary.n_rows,
     )
+
+
+SUMMARY_SCHEMA: dict[str, Any] = {
+    "shot_id": pl.String,
+    "game_id": pl.Int64,
+    "n_rows": pl.Int64,
+    "span_start": pl.Int64,
+    "span_end": pl.Int64,
+    "peak_frame": pl.Int64,
+    "peak_value": pl.Float64,
+    "window_start": pl.Int64,
+    "window_end": pl.Int64,
+    "window_handler_id": pl.Int64,
+    "window_peak_value": pl.Float64,
+    "advantage_seconds": pl.Float64,
+    "release_lag_seconds": pl.Float64,
+    "value_at_decision": pl.Float64,
+    "shot_value": pl.Float64,  # the real shot's value, from the decisions table
+    "verdict": pl.String,  # Verdict
+    "headline_es": pl.String,
+    "headline_en": pl.String,
+    "skipped_off_court": pl.Int64,
+}
+
+
+def build_curves(
+    game_id: int,
+    settings: Settings,
+    *,
+    model: ValueModel | None = None,
+    priors: Priors | None = None,
+    out_dir: Path | None = None,
+) -> tuple[Path, Path]:
+    """Write the curve and its summary for every valued shot of a game.
+
+    Valued shots are the rows of ``load_decisions`` with ``rule != "excluded"``; each summary
+    is read against that row's ``decision_frame`` and ``shot_value``. Two files in ``out_dir``
+    (default: the build's ``curves/``): ``{game_id}.parquet`` (``CURVE_SCHEMA``, one row per
+    sampled frame) and ``{game_id}.summary.parquet`` (``SUMMARY_SCHEMA``, one row per shot).
+    Returns ``(curves_path, summaries_path)``.
+    """
+    model = model or ValueModel.default()
+    priors = priors or Priors.from_settings(settings)
+    aligner = Aligner(game_id, settings)
+    valued = load_decisions(game_id, settings).filter(pl.col("rule") != "excluded")
+    curves: list[pl.DataFrame] = []
+    summaries: list[dict[str, Any]] = []
+    for row in valued.iter_rows(named=True):
+        result = possession_curve(aligner, row["shot_id"], priors, model)
+        if result is None:  # excluded by the aligner although valued: tables out of date
+            continue
+        summary = summarize_curve(
+            result.curve,
+            shot_id=row["shot_id"],
+            game_id=game_id,
+            decision_frame=row["decision_frame"],
+            shot_value=row["shot_value"],
+        )
+        curves.append(result.curve)
+        summaries.append(
+            {
+                **summary.model_dump(),
+                "headline_es": headline(summary, "es"),
+                "headline_en": headline(summary, "en"),
+                "skipped_off_court": result.skipped_off_court,
+            }
+        )
+    out = out_dir if out_dir is not None else settings.curves_parquet(game_id).parent
+    curves_path, summaries_path = out / f"{game_id}.parquet", out / f"{game_id}.summary.parquet"
+    curve_df = pl.concat(curves) if curves else pl.DataFrame(schema=CURVE_SCHEMA)
+    _write_parquet_atomic(curve_df, curves_path)
+    _write_parquet_atomic(pl.DataFrame(summaries, schema=SUMMARY_SCHEMA), summaries_path)
+    return curves_path, summaries_path

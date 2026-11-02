@@ -16,9 +16,15 @@ from ventaja.data import build as build_module
 from ventaja.data import pull as pull_module
 from ventaja.data.catalog import files_for
 from ventaja.data.duck import connect
-from ventaja.data.load import load_decision_options, load_decisions
+from ventaja.data.load import (
+    load_curve_summaries,
+    load_curves,
+    load_decision_options,
+    load_decisions,
+)
 from ventaja.decision.align import Aligner
 from ventaja.decision.cost import build_decisions
+from ventaja.decision.curve import build_curves
 from ventaja.errors import DataNotFoundError, VentajaError
 from ventaja.validate import decisions as decisions_checks
 from ventaja.validate import score as score_module
@@ -37,6 +43,8 @@ model = typer.Typer(help="Train and inspect the value model.", no_args_is_help=T
 app.add_typer(model, name="model")
 decisions = typer.Typer(help="Build and inspect shot decision costs.", no_args_is_help=True)
 app.add_typer(decisions, name="decisions")
+curves = typer.Typer(help="Build and inspect possession advantage curves.", no_args_is_help=True)
+app.add_typer(curves, name="curves")
 review = typer.Typer(help="Prepare the live review of decisions.", no_args_is_help=True)
 app.add_typer(review, name="review")
 
@@ -465,6 +473,108 @@ def decisions_show(
             opts, shooter_id=d["shooter_id"], best_alt_player_id=d["best_alt_player_id"]
         )
     )
+
+
+VERDICTS = ("late", "during", "none", "no_window")
+
+
+def _curve_summary(valued: int, summaries: pl.DataFrame) -> str:
+    counts = dict(summaries.group_by("verdict").len().iter_rows())
+    verdicts = ", ".join(f"{v} {counts.get(v, 0)}" for v in VERDICTS)
+    windows = summaries.filter(pl.col("window_start").is_not_null())["advantage_seconds"]
+    median = f"{float(windows.median()):.1f} s" if windows.len() else "n/a"  # type: ignore[arg-type]
+    return (
+        f"{valued} shots, {summaries.height} curves; {verdicts}; "
+        f"median advantage {median} (over {windows.len()} windows)"
+    )
+
+
+@curves.command("build")
+def curves_build(
+    game: GameOption = None,
+    all_games: AllOption = False,
+    model_path: Annotated[
+        Path | None, typer.Option("--model", help="Model JSON path (default: versioned model).")
+    ] = None,
+    out: Annotated[
+        Path | None,
+        typer.Option("--out", help="Output directory (default: the build's curves/)."),
+    ] = None,
+) -> None:
+    """Sample the handler's best option along each valued shot's chance and summarize it."""
+    if not game and not all_games:
+        typer.echo("error: choose games with --game ID (repeatable) or --all", err=True)
+        raise typer.Exit(code=2)
+    try:
+        settings = Settings.from_env()
+        loaded = (
+            model_module.ValueModel.load(model_path)
+            if model_path
+            else model_module.ValueModel.default()
+        )
+        priors = Priors.from_settings(settings)
+        for game_id in GAME_IDS if all_games else game or []:
+            valued = load_decisions(game_id, settings).filter(pl.col("rule") != "excluded")
+            curve_path, summary_path = build_curves(
+                game_id, settings, model=loaded, priors=priors, out_dir=out
+            )
+            summary = _curve_summary(valued.height, pl.read_parquet(summary_path))
+            typer.echo(f"game {game_id}: {summary}")
+            typer.echo(f"  -> {curve_path}")
+    except VentajaError as exc:
+        typer.echo(f"error: {exc}", err=True)
+        raise typer.Exit(code=1) from exc
+
+
+def _best(row: dict[str, Any]) -> str:
+    if row["best_option_type"] == "shot":
+        return f"{row['best_player_id']} shot"
+    return f"{row['best_player_id']} pass/{row['best_alt_type']}"
+
+
+@curves.command("show")
+def curves_show(
+    shot_id: Annotated[str, typer.Argument(help="Shot id, e.g. shot-114243-1-0.")],
+) -> None:
+    """Print a shot's curve summary and its curve, one row per sampled frame."""
+    try:
+        settings = Settings.from_env()
+        game_id = _game_of_shot(shot_id)
+        hit = load_curve_summaries(game_id, settings).filter(pl.col("shot_id") == shot_id)
+        if hit.height == 0:
+            raise DataNotFoundError(
+                f"shot {shot_id} not found in the curve summaries of {game_id} "
+                "(excluded shots have no curve)"
+            )
+        s = hit.row(0, named=True)
+        curve = load_curves(game_id, settings).filter(pl.col("shot_id") == shot_id)
+    except VentajaError as exc:
+        typer.echo(f"error: {exc}", err=True)
+        raise typer.Exit(code=1) from exc
+    typer.echo(f"{shot_id}  {s['headline_es']}")
+    typer.echo(
+        f"verdict {s['verdict']}  rows {s['n_rows']}  span {s['span_start']}-{s['span_end']}  "
+        f"shot value {_fmt(s['shot_value'])}  skipped off court {s['skipped_off_court']}"
+    )
+    typer.echo(
+        f"window {s['window_start'] or '-'}-{s['window_end'] or '-'}  "
+        f"handler {s['window_handler_id'] or '-'}  best pass {_fmt(s['window_peak_value'])}  "
+        f"advantage {s['advantage_seconds']:.1f} s  lag {_fmt(s['release_lag_seconds'], '.1f')} s"
+    )
+    typer.echo(
+        f"peak {_fmt(s['peak_value'])} at {s['peak_frame'] or '-'}  "
+        f"value at decision {_fmt(s['value_at_decision'])}"
+    )
+    typer.echo(
+        f"{'t_to_release':>12} {'handler':>8} {'shot_clock':>10} {'handler_shot_value':>18} "
+        f"{'best_value':>10} {'best_pass_value':>15}  best"
+    )
+    for r in curve.sort("frame_idx").iter_rows(named=True):
+        typer.echo(
+            f"{r['t_to_release']:>12.1f} {r['handler_id']:>8} {_fmt(r['shot_clock'], '.2f'):>10} "
+            f"{r['handler_shot_value']:>18.3f} {r['best_value']:>10.3f} "
+            f"{_fmt(r['best_pass_value']):>15}  {_best(r)}"
+        )
 
 
 @review.command("sample")

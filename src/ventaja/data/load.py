@@ -2,7 +2,7 @@
 
 import json
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 import polars as pl
 
@@ -193,21 +193,51 @@ def load_aggregates(name: str, settings: Settings) -> pl.DataFrame:
     return pl.read_parquet(path)
 
 
-def _decision_tables(root: Path) -> list[Path]:
-    """``{game_id}.parquet`` decision files of a directory (option files excluded)."""
-    return [
-        p for p in sorted(root.glob("[0-9]*.parquet")) if not p.name.endswith(".options.parquet")
-    ]
+ArtifactKind = Literal["decisions", "curves"]
+
+# Secondary files that sit next to each kind's ``{game_id}.parquet`` main tables.
+_SECONDARY_SUFFIX: dict[ArtifactKind, str] = {
+    "decisions": ".options.parquet",
+    "curves": ".summary.parquet",
+}
+_BUILD_HINT: dict[ArtifactKind, str] = {"decisions": "decisions build", "curves": "curves build"}
+
+
+def _main_tables(root: Path, kind: ArtifactKind) -> list[Path]:
+    """``{game_id}.parquet`` main tables of a directory (secondary files excluded)."""
+    suffix = _SECONDARY_SUFFIX[kind]
+    return [p for p in sorted(root.glob("[0-9]*.parquet")) if not p.name.endswith(suffix)]
+
+
+def artifact_dir(kind: ArtifactKind, settings: Settings) -> Path:
+    """The one directory every reader of ``kind`` uses, chosen once and never mixed.
+
+    The build's ``{kind}/`` if it holds any ``{game_id}.parquet`` main table, else the
+    packaged ``artifacts/{kind}/``.
+    """
+    built = settings.build_dir / kind
+    return built if _main_tables(built, kind) else ARTIFACTS_DIR / kind
+
+
+def _artifact_files(kind: ArtifactKind, settings: Settings) -> tuple[list[Path], list[Path]]:
+    root = artifact_dir(kind, settings)
+    return _main_tables(root, kind), sorted(root.glob(f"*{_SECONDARY_SUFFIX[kind]}"))
+
+
+def _artifact_table(
+    game_id: int, kind: ArtifactKind, name: str, settings: Settings
+) -> pl.DataFrame:
+    path = artifact_dir(kind, settings) / name
+    if not path.exists():
+        raise DataNotFoundError(
+            f"{path} not found; run `ventaja {_BUILD_HINT[kind]} --game {game_id}` first"
+        )
+    return pl.read_parquet(path)
 
 
 def decisions_dir(settings: Settings) -> Path:
-    """The one directory every decisions reader uses, chosen once and never mixed.
-
-    The build's ``decisions/`` if it holds any ``{game_id}.parquet`` decisions file, else
-    the packaged ``artifacts/decisions/``.
-    """
-    built = settings.build_dir / "decisions"
-    return built if _decision_tables(built) else ARTIFACTS_DIR / "decisions"
+    """``artifact_dir("decisions", settings)``: the build's decisions, else the packaged ones."""
+    return artifact_dir("decisions", settings)
 
 
 def decision_files(settings: Settings) -> tuple[list[Path], list[Path]]:
@@ -215,24 +245,32 @@ def decision_files(settings: Settings) -> tuple[list[Path], list[Path]]:
 
     Decision files are ``{game_id}.parquet``; option files are ``{game_id}.options.parquet``.
     """
-    root = decisions_dir(settings)
-    return _decision_tables(root), sorted(root.glob("*.options.parquet"))
-
-
-def _decision_table(game_id: int, name: str, settings: Settings) -> pl.DataFrame:
-    path = decisions_dir(settings) / name
-    if not path.exists():
-        raise DataNotFoundError(
-            f"{path} not found; run `ventaja decisions build --game {game_id}` first"
-        )
-    return pl.read_parquet(path)
+    return _artifact_files("decisions", settings)
 
 
 def load_decisions(game_id: int, settings: Settings) -> pl.DataFrame:
     """The decisions table of a game, from ``decisions_dir`` (no per-file fallback)."""
-    return _decision_table(game_id, f"{game_id}.parquet", settings)
+    return _artifact_table(game_id, "decisions", f"{game_id}.parquet", settings)
 
 
 def load_decision_options(game_id: int, settings: Settings) -> pl.DataFrame:
     """The per-option table of a game's decisions, from ``decisions_dir``."""
-    return _decision_table(game_id, f"{game_id}.options.parquet", settings)
+    return _artifact_table(game_id, "decisions", f"{game_id}.options.parquet", settings)
+
+
+def curve_files(settings: Settings) -> tuple[list[Path], list[Path]]:
+    """(curve, summary) parquet files of ``artifact_dir("curves")``.
+
+    Curve files are ``{game_id}.parquet``; summary files are ``{game_id}.summary.parquet``.
+    """
+    return _artifact_files("curves", settings)
+
+
+def load_curves(game_id: int, settings: Settings) -> pl.DataFrame:
+    """The per-frame advantage curves of a game's shots (no per-file fallback)."""
+    return _artifact_table(game_id, "curves", f"{game_id}.parquet", settings)
+
+
+def load_curve_summaries(game_id: int, settings: Settings) -> pl.DataFrame:
+    """The one-row-per-shot curve summaries of a game (no per-file fallback)."""
+    return _artifact_table(game_id, "curves", f"{game_id}.summary.parquet", settings)
