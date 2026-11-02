@@ -112,7 +112,7 @@ def test_decision_face_validity_checks(real_settings: Settings) -> None:
     ok, detail = result["cost_falls_with_clock"]
     if not ok:
         pytest.xfail(
-            "known: mean cost by clock is 0.149 (24-14), 0.179 (14-6), 0.102 (6-0), "
+            "known: mean cost by clock is 0.148 (24-14), 0.184 (14-6), 0.122 (6-0), "
             f"not monotone (see ADR-0004); measured now: {detail}"
         )
     pytest.fail(f"cost_falls_with_clock now passes ({detail}); drop the xfail", pytrace=False)
