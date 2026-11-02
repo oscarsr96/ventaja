@@ -20,6 +20,7 @@ from ventaja.data.load import load_decision_options, load_decisions
 from ventaja.decision.align import Aligner
 from ventaja.decision.cost import build_decisions
 from ventaja.errors import DataNotFoundError, VentajaError
+from ventaja.validate import decisions as decisions_checks
 from ventaja.validate import score as score_module
 from ventaja.value import model as model_module
 from ventaja.value.features import shot_rows
@@ -253,6 +254,37 @@ def validate_score(game: GameOption = None, all_games: AllOption = False) -> Non
             f"(official {official.home}-{official.away}) {'ok' if ok else 'MISMATCH'}"
         )
     if not all(ok for *_, ok in rows):
+        raise typer.Exit(code=1)
+
+
+@validate.command("decisions")
+def validate_decisions(
+    game: GameOption = None,
+    all_games: AllOption = False,
+    model_path: Annotated[
+        Path | None, typer.Option("--model", help="Model JSON path (default: versioned model).")
+    ] = None,
+) -> None:
+    """Run the face-validity checks over the decisions tables (default: all games)."""
+    ids = game if game and not all_games else GAME_IDS
+    try:
+        settings = Settings.from_env()
+        loaded = (
+            model_module.ValueModel.load(model_path)
+            if model_path
+            else model_module.ValueModel.default()
+        )
+        results = decisions_checks.checks(
+            pl.concat([load_decisions(g, settings) for g in ids], how="diagonal"),
+            pl.concat([load_decision_options(g, settings) for g in ids], how="diagonal"),
+            loaded,
+        )
+    except VentajaError as exc:
+        typer.echo(f"error: {exc}", err=True)
+        raise typer.Exit(code=1) from exc
+    for name, ok, detail in results:
+        typer.echo(f"{'ok  ' if ok else 'FAIL'} {name} — {detail}")
+    if not all(ok for _, ok, _ in results):
         raise typer.Exit(code=1)
 
 
