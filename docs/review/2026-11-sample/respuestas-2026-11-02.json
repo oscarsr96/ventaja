@@ -1,0 +1,186 @@
+{
+  "session": "2026-11-02",
+  "reviewer": "Óscar Sánchez Rueda (entrenador)",
+  "answers": [
+    {
+      "shot_id": "shot-114086-2-57",
+      "frame": "ok",
+      "frame_note": "",
+      "options": "ok",
+      "options_note": "",
+      "comment": "",
+      "updated": "2026-11-02T12:03:20.703Z"
+    },
+    {
+      "shot_id": "shot-114086-2-60",
+      "frame": "ok",
+      "frame_note": "",
+      "options": "ok",
+      "options_note": "",
+      "comment": "",
+      "updated": "2026-11-02T12:06:14.245Z"
+    },
+    {
+      "shot_id": "shot-114086-3-68",
+      "frame": "mal",
+      "frame_note": "cuando marca los pasos en la entrada",
+      "options": "ok",
+      "options_note": "",
+      "comment": "",
+      "updated": "2026-11-02T12:07:11.878Z"
+    },
+    {
+      "shot_id": "shot-114086-4-102",
+      "frame": "ok",
+      "frame_note": "",
+      "options": "ok",
+      "options_note": "en este caso la accion es la mejor decision",
+      "comment": "el pase fuera esta tapado por linea de pase",
+      "updated": "2026-11-02T12:07:58.937Z"
+    },
+    {
+      "shot_id": "shot-114169-1-33",
+      "frame": "ok",
+      "frame_note": "",
+      "options": "ok",
+      "options_note": "",
+      "comment": "",
+      "updated": "2026-11-02T12:08:17.887Z"
+    },
+    {
+      "shot_id": "shot-114234-1-25",
+      "frame": "ok",
+      "frame_note": "",
+      "options": "ok",
+      "options_note": "",
+      "comment": "jugador con balon no puede ver la llegada del compañero abierto en el triple",
+      "updated": "2026-11-02T12:08:56.888Z"
+    },
+    {
+      "shot_id": "shot-114234-4-134",
+      "frame": "ok",
+      "frame_note": "",
+      "options": "ok",
+      "options_note": "",
+      "comment": "la mejor accion es la ejecutada, hay dos defensores en la zona para dar el pase",
+      "updated": "2026-11-02T12:09:45.590Z"
+    },
+    {
+      "shot_id": "shot-114243-4-140",
+      "frame": "ok",
+      "frame_note": "",
+      "options": "ok",
+      "options_note": "",
+      "comment": "el pase es arriesgado",
+      "updated": "2026-11-02T12:10:11.986Z"
+    },
+    {
+      "shot_id": "shot-114243-4-155",
+      "frame": "ok",
+      "frame_note": "",
+      "options": "ok",
+      "options_note": "",
+      "comment": "buena decision",
+      "updated": "2026-11-02T12:10:25.143Z"
+    },
+    {
+      "shot_id": "shot-179612-2-40",
+      "frame": "ok",
+      "frame_note": "",
+      "options": "ok",
+      "options_note": "",
+      "comment": "buena decision",
+      "updated": "2026-11-02T12:10:39.439Z"
+    },
+    {
+      "shot_id": "shot-179612-3-82",
+      "frame": "ok",
+      "frame_note": "",
+      "options": "ok",
+      "options_note": "",
+      "comment": "jugador 0 esta defendido",
+      "updated": "2026-11-02T12:11:26.388Z"
+    },
+    {
+      "shot_id": "shot-179612-4-140",
+      "frame": "ok",
+      "frame_note": "",
+      "options": "ok",
+      "options_note": "",
+      "comment": "buen tiro",
+      "updated": "2026-11-02T12:11:46.147Z"
+    },
+    {
+      "shot_id": "shot-184439-1-20",
+      "frame": "ok",
+      "frame_note": "",
+      "options": "ok",
+      "options_note": "",
+      "comment": "",
+      "updated": "2026-11-02T12:12:01.604Z"
+    },
+    {
+      "shot_id": "shot-188630-1-28",
+      "frame": "ok",
+      "frame_note": "",
+      "options": "ok",
+      "options_note": "",
+      "comment": "no entiendo esta jugada",
+      "updated": "2026-11-02T12:12:24.981Z"
+    },
+    {
+      "shot_id": "shot-188630-4-104",
+      "frame": "ok",
+      "frame_note": "",
+      "options": "ok",
+      "options_note": "",
+      "comment": "jugador 9 está defendido",
+      "updated": "2026-11-02T12:12:44.412Z"
+    },
+    {
+      "shot_id": "shot-191313-1-10",
+      "frame": "ok",
+      "frame_note": "",
+      "options": "ok",
+      "options_note": "",
+      "comment": "",
+      "updated": "2026-11-02T12:12:59.535Z"
+    },
+    {
+      "shot_id": "shot-191313-2-46",
+      "frame": "ok",
+      "frame_note": "",
+      "options": "mal",
+      "options_note": "",
+      "comment": "pase al dorsal 47",
+      "updated": "2026-11-02T12:13:24.242Z"
+    },
+    {
+      "shot_id": "shot-191313-4-122",
+      "frame": "ok",
+      "frame_note": "",
+      "options": "ok",
+      "options_note": "",
+      "comment": "",
+      "updated": "2026-11-02T12:13:39.331Z"
+    },
+    {
+      "shot_id": "shot-191313-4-127",
+      "frame": "ok",
+      "frame_note": "",
+      "options": "mal",
+      "options_note": "",
+      "comment": "pase a dorsal 37",
+      "updated": "2026-11-02T12:14:08.079Z"
+    },
+    {
+      "shot_id": "shot-191313-4-137",
+      "frame": "ok",
+      "frame_note": "",
+      "options": "mal",
+      "options_note": "",
+      "comment": "tiro precipitado",
+      "updated": "2026-11-02T12:14:33.467Z"
+    }
+  ]
+}

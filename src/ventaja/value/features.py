@@ -13,7 +13,10 @@ from ventaja.value.params import (
     BETWEEN_WIDTH,
     FLIGHT_MAX,
     FLIGHT_MIN,
+    LANE_DRIVING_SPEED,
     LANE_END_MARGIN,
+    LANE_END_ZONE,
+    LANE_OPEN_RECEIVER,
     LANE_WIDTH,
     PASS_SPEED,
     PROJECTION_CAP,
@@ -64,10 +67,28 @@ def _projected_displacement(mate: PlayerPos, pass_distance: float) -> tuple[floa
     return dx, dy
 
 
-def _lane_blocked(shooter: PlayerPos, x: float, y: float, defense: list[PlayerPos]) -> bool:
+def _lane_blocked(
+    shooter: PlayerPos,
+    x: float,
+    y: float,
+    defense: list[PlayerPos],
+    *,
+    receiver_def_dist: float,
+    passer_moving_to_hoop: float,
+) -> bool:
+    """Whether a defender blocks the pass from ``shooter`` to the projected ``(x, y)`` (ADR-0005).
+
+    A defender in the lane blocks when it is within ``LANE_END_ZONE`` of either end, or when
+    it is mid-lane and the receiver is not open (nearest defender closer than
+    ``LANE_OPEN_RECEIVER``) or the passer is driving (``LANE_DRIVING_SPEED`` or faster).
+    """
     for d in defense:
         perp, along, length = _segment_position(d.x, d.y, shooter.x, shooter.y, x, y)
-        if perp < LANE_WIDTH and LANE_END_MARGIN < along < length - LANE_END_MARGIN:
+        if perp >= LANE_WIDTH or not LANE_END_MARGIN < along < length - LANE_END_MARGIN:
+            continue
+        if min(along, length - along) <= LANE_END_ZONE:
+            return True
+        if receiver_def_dist < LANE_OPEN_RECEIVER or passer_moving_to_hoop >= LANE_DRIVING_SPEED:
             return True
     return False
 
@@ -108,6 +129,7 @@ def _option(
     is_shot: bool,
     shot_zone: Zone | None = None,
     shot_three: bool | None = None,
+    passer_moving_to_hoop: float = 0.0,
 ) -> dict[str, Any]:
     pass_distance = 0.0 if is_shot else math.hypot(option.x - shooter.x, option.y - shooter.y)
     dx, dy = (0.0, 0.0) if is_shot else _projected_displacement(option, pass_distance)
@@ -120,6 +142,15 @@ def _option(
     dist = distance_to_hoop(x, y)
     nearest = min(snapshot.defense, key=lambda d: math.hypot(x - d.x, y - d.y))
     clock = snapshot.shot_clock
+    nearest_dist = math.hypot(x - nearest.x, y - nearest.y)
+    lane_blocked = not is_shot and _lane_blocked(
+        shooter,
+        x,
+        y,
+        snapshot.defense,
+        receiver_def_dist=nearest_dist,
+        passer_moving_to_hoop=passer_moving_to_hoop,
+    )
     return {
         "option_player_id": option.player_id,
         "option_type": "shot" if is_shot else "pass",
@@ -128,14 +159,14 @@ def _option(
         "x": x,
         "y": y,
         "pass_distance": pass_distance,
-        "lane_blocked": False if is_shot else _lane_blocked(shooter, x, y, snapshot.defense),
+        "lane_blocked": lane_blocked,
         "projected_dx": dx,
         "projected_dy": dy,
         "dist_hoop": dist,
         "dist_hoop_sq": dist * dist,
         "angle_abs": math.atan2(abs(y - HOOP[1]), x - HOOP[0]),
         "is_three": option_three,
-        "nearest_def_dist": math.hypot(x - nearest.x, y - nearest.y),
+        "nearest_def_dist": nearest_dist,
         "def_between": _def_between(x, y, snapshot.defense),
         "closing_speed": _closing_speed(x, y, nearest),
         "moving_to_hoop": _moving_to_hoop(option, x, y),
@@ -194,6 +225,7 @@ def option_rows(
         ) from None
     if not snapshot.defense:
         raise VentajaError(f"no defenders in frame {snapshot.frame_idx}")
+    passer_moving = _moving_to_hoop(shooter, shooter.x, shooter.y)
     rows = [
         _option(
             snapshot,
@@ -206,7 +238,7 @@ def option_rows(
         )
     ]
     rows += [
-        _option(snapshot, mate, shooter, priors, is_shot=False)
+        _option(snapshot, mate, shooter, priors, is_shot=False, passer_moving_to_hoop=passer_moving)
         for mate in snapshot.teammates_of(shooter_id)
     ]
     return pl.DataFrame(rows, schema=_OPTION_SCHEMA)

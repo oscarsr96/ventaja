@@ -40,6 +40,8 @@ Todas las constantes viven en `value/params.py` y solo cambian mediante un ADR.
 
 ## Consecuencias
 
+La regla de `lane_blocked` descrita aquí se modificó tras la sesión en vivo del 2 de noviembre de 2026: véase [ADR-0005](0005-carril-de-pase-tras-la-sesion.md).
+
 Cada tiro de los 10 partidos tiene un coste explicable opción a opción (`ventaja decisions show SHOT_ID`). Sobre los 1 351 tiros válidos el coste medio es 0,159 puntos (mediana 0). En 116 tiros, todos con menos de 2 s de posesión, ningún pase es viable y no cuentan como lectura; de los 1 235 restantes, el 48 % son buenas lecturas. Por tramo de reloj el coste medio es 0,148 (24-14 s), 0,184 (14-6 s) y 0,122 (6-0 s): cae al final de la posesión (en parte porque los 116 tiros sin pase viable tienen coste 0), pero no de forma monótona, así que el chequeo `cost_falls_with_clock` falla. No se ajusta para que pase: es un diagnóstico para la sesión en vivo y CI lo permite con `--allow-fail` (los otros tres chequeos bloquean). La mejor alternativa es un `extra_pass` en 694 tiros, `open_corner` en 205, `other` en 198, `post` en 79 y `rim_cut` en 59.
 
 **Corrección sobre las zonas lejanas.** Una versión anterior de este ADR atribuía los 16 tiros válidos en zona `far`/`backcourt` a finalizaciones juzgadas en un último bote lejano. No era así: 11 de los 16 eran tiros en suspensión (`gather`), 8 de ellos heaves, y su zona se tomaba de la posición del tirador en el frame de decisión. Con la zona y los puntos tomados del evento, quedan 11 tiros en esas zonas (8 `backcourt` y 3 `far`), todos tiros en suspensión (8 heaves, un catchAndShoot, un dribblePullUp y un shakeAndRaise) y todos valorados como triples; ninguna finalización cae ya en ellas.

@@ -35,6 +35,11 @@ PROJECTION_CAP = 10.0  # ft, maximum displacement applied to a receiver
 # Geometry of defensive pressure.
 LANE_WIDTH = 3.0  # ft, a defender closer than this to the passer->receiver segment is in the lane
 LANE_END_MARGIN = 2.0  # ft, segment ends ignored (a defender guarding passer or receiver)
+# Lane rule (ADR-0005): a defender mid-lane blocks only if the receiver is not open or the
+# passer is driving; a defender near either end of the segment always blocks.
+LANE_END_ZONE = 6.0  # ft, a lane defender this close to either end of the segment always blocks
+LANE_OPEN_RECEIVER = 6.0  # ft, receiver's nearest defender at least this far: open for a lob pass
+LANE_DRIVING_SPEED = 4.0  # ft/s, passer moving to the hoop at least this fast: no time to lob
 BETWEEN_WIDTH = 3.0  # ft, a defender this close to the player->hoop segment is between them
 # Shot clock below this many seconds sets the ``shot_clock_low`` flag.
 SHOT_CLOCK_LOW = 4.0

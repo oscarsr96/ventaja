@@ -81,16 +81,56 @@ def test_projection_without_velocity_is_identity() -> None:
 
 
 def _lane(defender_y: float) -> bool:
+    """Passer (-10, 0) -> receiver (-30, 0); a second defender keeps the receiver covered."""
     s = make_snapshot(
         offense=[(1, -10.0, 0.0), (2, -30.0, 0.0), (3, 0, 15), (4, 0, -15), (5, 0, 10)],
-        defense=[(100, -20.0, defender_y), *FAR_DEF[1:]],
+        defense=[(100, -20.0, defender_y), (101, -30.0, 5.0), *FAR_DEF[2:]],
     )
     return bool(_row(option_rows(s, 1, _priors_stub()), 2)["lane_blocked"])
 
 
 def test_lane_blocked_detects_defender_on_segment() -> None:
+    # The receiver has a defender at 5 ft (not open), so a mid-lane defender blocks (ADR-0005).
     assert _lane(1.0) is True
     assert _lane(5.0) is False
+
+
+def _lane_case(
+    defender: tuple[float, float],
+    *,
+    receiver_def: tuple[float, float] | None = None,
+    passer_vx: float | None = None,
+) -> bool:
+    """Passer (-10, 0) -> receiver (-30, 0), 20 ft; ``defender`` is the one in the lane."""
+    passer: PlayerSpec = (1, -10.0, 0.0) if passer_vx is None else (1, -10.0, 0.0, passer_vx, 0.0)
+    defense: list[PlayerSpec] = [(100, *defender)]
+    defense += [(101, *receiver_def)] if receiver_def else []
+    defense += FAR_DEF[len(defense) :]
+    s = make_snapshot(
+        offense=[passer, (2, -30.0, 0.0), (3, 0, 15), (4, 0, -15), (5, 0, 10)], defense=defense
+    )
+    return bool(_row(option_rows(s, 1, _priors_stub()), 2)["lane_blocked"])
+
+
+def test_lane_mid_lane_defender_open_receiver_set_passer_not_blocked() -> None:
+    """Kurucs / Andric / Gonzalez: a set passer lobs over a defender in the middle."""
+    assert _lane_case((-20.0, 1.0)) is False
+
+
+def test_lane_mid_lane_defender_receiver_not_open_blocked() -> None:
+    """Mid-lane defender and a covered receiver (defender at 4 ft)."""
+    assert _lane_case((-20.0, 1.0), receiver_def=(-30.0, 4.0)) is True
+
+
+def test_lane_mid_lane_defender_passer_driving_spagnolo_omoruyi_blocked() -> None:
+    """Spagnolo / Omoruyi: open receiver, passer driving to the hoop (at x=-40.7) at 10 ft/s."""
+    assert _lane_case((-20.0, 1.0), passer_vx=-10.0) is True
+    assert _lane_case((-20.0, 1.0), passer_vx=10.0) is False
+
+
+def test_lane_defender_near_passer_end_blocked_regardless() -> None:
+    assert _lane_case((-13.0, 0.5)) is True
+    assert _lane_case((-27.0, 0.5)) is True
 
 
 def test_lane_ignores_defender_guarding_endpoints() -> None:
