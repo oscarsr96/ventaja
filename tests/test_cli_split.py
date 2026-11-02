@@ -58,10 +58,20 @@ def test_every_command_still_registered() -> None:
         assert {_name(c) for c in instance.registered_commands} == expected
 
 
+_ANSI = re.compile(r"\x1b\[[0-9;]*[A-Za-z]")
+_BOX = re.compile(r"[│╭╮╰╯─]")
+_PLAIN_ENV = {"NO_COLOR": "1", "TERM": "dumb", "COLUMNS": "200", "FORCE_COLOR": "0"}
+
+
+def _normalise(text: str) -> str:
+    """Strip ANSI escapes and box drawing, and collapse whitespace."""
+    return re.sub(r"\s+", " ", _BOX.sub(" ", _ANSI.sub("", text))).strip()
+
+
 def _flat(args: list[str]) -> str:
-    result = CliRunner().invoke(app, args)
+    result = CliRunner().invoke(app, args, env=_PLAIN_ENV)
     assert result.exit_code == 0
-    return re.sub(r"\s+", " ", result.output.replace("│", " "))
+    return _normalise(result.output)
 
 
 def test_help_texts_unchanged() -> None:
@@ -72,4 +82,4 @@ def test_help_texts_unchanged() -> None:
     ):
         text = _flat(args)
         for line in lines:
-            assert line in text, line
+            assert _normalise(line) in text, line
