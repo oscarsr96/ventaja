@@ -211,3 +211,48 @@ def test_curve_summaries_cover_every_valued_shot(real_settings: Settings) -> Non
     assert other_handler <= 1, (
         f"{other_handler} decision rows have a handler other than the shooter"
     )
+
+
+def test_player_cards_cover_every_shooter(real_settings: Settings, tmp_path: Path) -> None:
+    """ADR-0008: 190 shooters plus the LIGA row, 1,351 valued shots, means in range, the league
+    mean cost equal to the mean cost over the readable decisions, and the phrase counts."""
+    from ventaja.data.load import load_decisions
+    from ventaja.profile.card import LEAGUE_ID, PLAYERS_SCHEMA, build_players
+
+    players_path, teams_path = build_players(real_settings, out_dir=tmp_path)
+    players = pl.read_parquet(players_path)
+    assert dict(players.schema) == PLAYERS_SCHEMA
+    shooters = players.filter(pl.col("player_id") != LEAGUE_ID)
+    league = players.filter(pl.col("player_id") == LEAGUE_ID).row(0, named=True)
+    assert shooters.height == 190
+    assert shooters["n_shots"].sum() == 1351 == league["n_shots"]
+    assert shooters["name"].null_count() == 0 and shooters["team"].null_count() == 0
+    for col in ("good_read_share", "late_held_share", "during_share"):
+        values = players[col].drop_nulls()
+        assert ((values >= 0) & (values <= 1)).all(), col
+    for col in ("mean_cost", "mean_shot_value", "mean_best_alt_value"):
+        values = players[col].drop_nulls()
+        assert ((values >= 0) & (values <= 3)).all(), col
+    shares = [c for c in players.columns if "_share" in c and c.startswith(("season_", "tracked_"))]
+    for col in shares:
+        values = players[col].drop_nulls()
+        assert ((values >= 0) & (values <= 1)).all(), col
+    decisions = pl.concat([load_decisions(g, real_settings) for g in GAME_IDS])
+    readable = decisions.filter((pl.col("rule") != "excluded") & pl.col("good_read").is_not_null())
+    assert league["mean_cost"] == pytest.approx(float(readable["cost"].mean()), abs=1e-6)  # type: ignore[arg-type]
+    teams = pl.read_parquet(teams_path)
+    assert teams.height == 17 and teams["n_shots"].sum() == 1351
+    assert (teams["games"].list.len() == 1).sum() == 14  # 14 of 17 teams have one game
+    # R7: lost moments with the reel's clock floor (was 208 of 1,351, 15.4 %)
+    assert league["n_late_held"] == 182 and league["n_with_summary"] == 1351
+    assert league["late_held_share"] == pytest.approx(0.1347, abs=1e-4)
+    # R6: below PROFILE_MIN_SHOTS readable shots the phrase is only the sample note
+    small = shooters.filter(pl.col("n_readable") < 8)
+    full = shooters.filter(pl.col("n_readable") >= 8)
+    assert small.height == 124 and full.height == 66
+    assert not small["phrase_es"].str.contains("coste").any()
+    assert not small["phrase_en"].str.contains("cost").any()
+    assert full["phrase_es"].str.contains("su coste es más alto con").sum() == 57
+    late = full.filter(pl.col("phrase_es").str.contains("tiende a tirar"))
+    assert late.height == 17
+    assert not late["name"].is_in(["Chris Duarte", "Kevin Punter", "Dylan Ennis"]).any()

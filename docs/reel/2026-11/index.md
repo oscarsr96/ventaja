@@ -124,57 +124,57 @@ Buenas lecturas (el tiro valía al menos lo que el mejor pase) ordenadas por mar
 
 ## Momentos perdidos
 
-Veredicto `late` de la curva: el tirador tuvo una ventaja de al menos 0,4 s, se le cerró y siguió con el balón hasta tirar (`held_to_decision`). Ordenados por el retraso entre el fin de la ventaja y el frame de decisión; el clip empieza antes para que se vea la ventana.
+Veredicto `late` de la curva: el tirador tuvo una ventaja de al menos 0,4 s, se le cerró y siguió con el balón hasta tirar (`held_to_decision`). Se excluyen las decisiones con menos de 2,5 s de posesión, en las que la ventana se cierra por el reloj y no por el tirador. Ordenados por el valor perdido (mejor pase de la ventana − tiro) y, a igualdad, por el retraso entre el fin de la ventaja y el frame de decisión; el clip empieza antes para que se vea la ventana.
 
-| # | Partido | Jugador | Cuarto y reloj | Tiro | Mejor alternativa | Retraso | Mejor pase en la ventana | Titular |
-|---:|---|---|---|---|---|---|---|---|
-| 1 | Leche Rio Breogan–Casademont Zaragoza | Joaquin Nazar Rodriguez Olivera (Casademont Zaragoza) | 1.º · 3,6 s | 1,10 (last_dribble) | Trae Bell-Haynes (extra_pass) 0,89 | 7,8 s (ventaja 1,8 s) | Joaquin Nazar Rodriguez Olivera 1,36 | La ventaja duró 1,8 s y se esfumó 7,8 s antes de la decisión |
-| 2 | BC Barcelona–Dreamland Gran Canaria | Kevin Punter (BC Barcelona) | 3.º · 6,9 s | 1,11 (gather) | Juan Ignacio Marcos (extra_pass) 1,13 | 5,2 s (ventaja 0,8 s) | Kevin Punter 1,31 | La ventaja duró 0,8 s y se esfumó 5,2 s antes de la decisión |
-| 3 | CB UCAM Murcia–Club Joventut Badalona | Howard Sant-Roos (CB UCAM Murcia) | 2.º · 3,7 s | 1,07 (last_dribble) | David Dejulius (other) 1,04 | 2,7 s (ventaja 2,2 s) | Howard Sant-Roos 1,44 | La ventaja duró 2,2 s y se esfumó 2,7 s antes de la decisión |
-| 4 | CB UCAM Murcia–Club Joventut Badalona | Ante Tomic (Club Joventut Badalona) | 2.º · 9,5 s | 0,77 (last_dribble) | Henri Drell (extra_pass) 0,79 | 2,6 s (ventaja 1,0 s) | Ante Tomic 0,92 | La ventaja duró 1,0 s y se esfumó 2,6 s antes de la decisión |
-| 5 | BC MoraBanc Andorra–Bilbao Basket | Darrun Hilliard (Bilbao Basket) | 3.º · 0,0 s | 0,63 (gather) | — | 2,6 s (ventaja 2,0 s) | Darrun Hilliard 1,36 | La ventaja duró 2,0 s y se esfumó 2,6 s antes de la decisión |
-| 6 | BC MoraBanc Andorra–Bilbao Basket | Justin Jaworski (Bilbao Basket) | 1.º · 0,0 s | 0,59 (gather) | — | 2,4 s (ventaja 1,0 s) | Justin Jaworski 1,28 | La ventaja duró 1,0 s y se esfumó 2,4 s antes de la decisión |
-| 7 | BAXI Manresa–Coviran Granada | Louis Olinde (BAXI Manresa) | 3.º · 0,0 s | 0,48 (last_dribble) | — | 2,3 s (ventaja 1,4 s) | Louis Olinde 0,80 | La ventaja duró 1,4 s y se esfumó 2,3 s antes de la decisión |
-| 8 | CB UCAM Murcia–Club Joventut Badalona | Cameron Hunt (Club Joventut Badalona) | 4.º · 0,2 s | 0,76 (gather) | — | 2,2 s (ventaja 1,4 s) | Cameron Hunt 1,01 | La ventaja duró 1,4 s y se esfumó 2,2 s antes de la decisión |
-| 9 | Malaga–Valencia BC | Kameron Taylor (Valencia BC) | 1.º · 16,3 s | 1,07 (last_dribble) | Darius Thompson (extra_pass) 0,85 | 2,2 s (ventaja 1,6 s) | Kameron Taylor 1,41 | La ventaja duró 1,6 s y se esfumó 2,2 s antes de la decisión |
-| 10 | Malaga–Valencia BC | Jean Claudio Montero (Valencia BC) | 1.º · 17,6 s | 1,30 (last_dribble) | Omari Moore (extra_pass) 0,53 | 2,1 s (ventaja 0,4 s) | Jean Claudio Montero 1,46 | La ventaja duró 0,4 s y se esfumó 2,1 s antes de la decisión |
+| # | Partido | Jugador | Cuarto y reloj | Tiro | Mejor alternativa | Valor perdido | Retraso | Mejor pase en la ventana | Titular |
+|---:|---|---|---|---|---|---|---|---|---|
+| 1 | BC MoraBanc Andorra–Bilbao Basket | Darrun Hilliard (Bilbao Basket) | 2.º · 15,7 s | 0,60 (last_dribble) | Stefan Lazarevic (open_corner) 0,54 | 1,00 pts | 0,4 s (ventaja 1,4 s) | Darrun Hilliard 1,60 | La ventaja duró 1,4 s y se esfumó 0,4 s antes de la decisión |
+| 2 | Dreamland Gran Canaria–Bitci Baskonia | Andrew Albicy (Dreamland Gran Canaria) | 2.º · 3,6 s | 0,40 (gather) | Kur Kuath (post) 0,38 | 0,98 pts | 0,4 s (ventaja 4,2 s) | Andrew Albicy 1,38 | La ventaja duró 4,2 s y se esfumó 0,4 s antes de la decisión |
+| 3 | Basquet Girona–San Pablo Burgos | Jose Ignacio Vildoza (Basquet Girona) | 3.º · 12,4 s | 0,43 (last_dribble) | Juan Fernandez (open_corner) 0,51 | 0,93 pts | 0,8 s (ventaja 1,4 s) | Jose Ignacio Vildoza 1,36 | La ventaja duró 1,4 s y se esfumó 0,8 s antes de la decisión |
+| 4 | BAXI Manresa–Coviran Granada | Agustin Ubal (BAXI Manresa) | 3.º · 8,8 s | 1,11 (last_dribble) | Alfonso Plummer (extra_pass) 0,52 | 0,92 pts | 1,3 s (ventaja 1,0 s) | Agustin Ubal 2,03 | La ventaja duró 1,0 s y se esfumó 1,3 s antes de la decisión |
+| 5 | BC MoraBanc Andorra–Bilbao Basket | Aaron Best (BC MoraBanc Andorra) | 4.º · 12,4 s | 0,51 (last_dribble) | Artem Pustovyi (extra_pass) 0,49 | 0,92 pts | 0,1 s (ventaja 2,4 s) | Aaron Best 1,43 | La ventaja duró 2,4 s y se esfumó 0,1 s antes de la decisión |
+| 6 | Casademont Zaragoza–Leche Rio Breogan | DeWayne Russell (Leche Rio Breogan) | 1.º · 10,6 s | 0,69 (last_dribble) | Keandre Cook (extra_pass) 0,54 | 0,92 pts | 0,7 s (ventaja 2,4 s) | DeWayne Russell 1,61 | La ventaja duró 2,4 s y se esfumó 0,7 s antes de la decisión |
+| 7 | Leche Rio Breogan–Casademont Zaragoza | DeWayne Russell (Leche Rio Breogan) | 4.º · — | 0,52 (gather) | Mihajlo Andric (extra_pass) 0,53 | 0,87 pts | 0,2 s (ventaja 1,4 s) | DeWayne Russell 1,39 | La ventaja duró 1,4 s y se esfumó 0,2 s antes de la decisión |
+| 8 | CB UCAM Murcia–Club Joventut Badalona | Dylan Ennis (CB UCAM Murcia) | 4.º · 5,3 s | 0,59 (last_dribble) | David Dejulius (extra_pass) 0,49 | 0,87 pts | 0,6 s (ventaja 7,4 s) | Dylan Ennis 1,45 | La ventaja duró 7,4 s y se esfumó 0,6 s antes de la decisión |
+| 9 | Leche Rio Breogan–Casademont Zaragoza | DeWayne Russell (Leche Rio Breogan) | 1.º · 10,7 s | 0,66 (last_dribble) | Mihajlo Andric (extra_pass) 0,50 | 0,85 pts | 0,7 s (ventaja 5,8 s) | DeWayne Russell 1,51 | La ventaja duró 5,8 s y se esfumó 0,7 s antes de la decisión |
+| 10 | Casademont Zaragoza–Leche Rio Breogan | Santiago Yusta (Casademont Zaragoza) | 3.º · 13,2 s | 0,84 (last_dribble) | Devin Robinson (extra_pass) 0,94 | 0,82 pts | 1,0 s (ventaja 1,0 s) | Santiago Yusta 1,66 | La ventaja duró 1,0 s y se esfumó 1,0 s antes de la decisión |
 
-### 1. shot-191313-1-5 — Joaquin Nazar Rodriguez Olivera
+### 1. shot-178442-2-36 — Darrun Hilliard
 
-![shot-191313-1-5](01-late-shot-191313-1-5.gif)
+![shot-178442-2-36](01-late-shot-178442-2-36.gif)
 
-### 2. shot-188630-3-81 — Kevin Punter
+### 2. shot-114086-2-41 — Andrew Albicy
 
-![shot-188630-3-81](02-late-shot-188630-3-81.gif)
+![shot-114086-2-41](02-late-shot-114086-2-41.gif)
 
-### 3. shot-114169-2-41 — Howard Sant-Roos
+### 3. shot-114099-3-97 — Jose Ignacio Vildoza
 
-![shot-114169-2-41](03-late-shot-114169-2-41.gif)
+![shot-114099-3-97](03-late-shot-114099-3-97.gif)
 
-### 4. shot-114169-2-68 — Ante Tomic
+### 4. shot-114243-3-105 — Agustin Ubal
 
-![shot-114169-2-68](04-late-shot-114169-2-68.gif)
+![shot-114243-3-105](04-late-shot-114243-3-105.gif)
 
-### 5. shot-178442-3-90 — Darrun Hilliard
+### 5. shot-178442-4-120 — Aaron Best
 
-![shot-178442-3-90](05-late-shot-178442-3-90.gif)
+![shot-178442-4-120](05-late-shot-178442-4-120.gif)
 
-### 6. shot-178442-1-18 — Justin Jaworski
+### 6. shot-114234-1-4 — DeWayne Russell
 
-![shot-178442-1-18](06-late-shot-178442-1-18.gif)
+![shot-114234-1-4](06-late-shot-114234-1-4.gif)
 
-### 7. shot-114243-3-111 — Louis Olinde
+### 7. shot-191313-4-132 — DeWayne Russell
 
-![shot-114243-3-111](07-late-shot-114243-3-111.gif)
+![shot-191313-4-132](07-late-shot-191313-4-132.gif)
 
-### 8. shot-114169-4-111 — Cameron Hunt
+### 8. shot-114169-4-122 — Dylan Ennis
 
-![shot-114169-4-111](08-late-shot-114169-4-111.gif)
+![shot-114169-4-122](08-late-shot-114169-4-122.gif)
 
-### 9. shot-179612-1-7 — Kameron Taylor
+### 9. shot-191313-1-1 — DeWayne Russell
 
-![shot-179612-1-7](09-late-shot-179612-1-7.gif)
+![shot-191313-1-1](09-late-shot-191313-1-1.gif)
 
-### 10. shot-179612-1-34 — Jean Claudio Montero
+### 10. shot-114234-3-93 — Santiago Yusta
 
-![shot-179612-1-34](10-late-shot-179612-1-34.gif)
+![shot-114234-3-93](10-late-shot-114234-3-93.gif)

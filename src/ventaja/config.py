@@ -77,3 +77,11 @@ class Settings(BaseModel):
     def curve_summaries_parquet(self, game_id: int) -> Path:
         """Path of the built one-row-per-shot curve summaries of a game."""
         return self.build_dir / "curves" / f"{game_id}.summary.parquet"
+
+    def players_parquet(self) -> Path:
+        """Path of the built player cards (one row per shooter plus the ``LIGA`` row)."""
+        return self.build_dir / "players" / "players.parquet"
+
+    def teams_parquet(self) -> Path:
+        """Path of the built team cards."""
+        return self.build_dir / "players" / "teams.parquet"

@@ -8,6 +8,7 @@ from ventaja.data.build import build_aggregates, build_events, build_meta, build
 from ventaja.decision.align import Aligner
 from ventaja.decision.cost import build_decisions
 from ventaja.decision.curve import build_curves
+from ventaja.profile.card import build_players
 from ventaja.value.features import shot_rows
 from ventaja.value.model import ValueModel, fit
 from ventaja.value.priors import Priors
@@ -53,6 +54,15 @@ def fixture_curves_built(
     build_decisions(FIXTURE_GAME_ID, built_fixture, model=trained_fixture_model)
     build_curves(FIXTURE_GAME_ID, built_fixture, model=trained_fixture_model, priors=fixture_priors)
     yield built_fixture
+
+
+@pytest.fixture(scope="session")
+def fixture_players_built(
+    fixture_curves_built: Settings, trained_fixture_model: ValueModel
+) -> Iterator[Settings]:
+    """``fixture_curves_built`` with the player and team cards built once (toy model stamp)."""
+    build_players(fixture_curves_built, model=trained_fixture_model)
+    yield fixture_curves_built
 
 
 FIXTURE_SHOT_COUNT = 20

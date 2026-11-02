@@ -6,7 +6,7 @@ from typing import Any
 
 import polars as pl
 
-from ventaja.value.params import MIN_RANK_ADVANTAGE, MIN_RANK_CONFIDENCE
+from ventaja.value.params import LATE_MIN_CLOCK, MIN_RANK_ADVANTAGE, MIN_RANK_CONFIDENCE
 
 __all__ = ["SECTIONS", "UNAVAILABLE", "write_index"]
 
@@ -32,8 +32,11 @@ _INTRO = {
         "Veredicto `late` de la curva: el tirador tuvo una ventaja de al menos "
         f"{format(MIN_RANK_ADVANTAGE, '.1f').replace('.', ',')} s, se le cerró y siguió "
         "con el balón hasta tirar "
-        "(`held_to_decision`). Ordenados por el retraso entre el fin de la ventaja y el frame "
-        "de decisión; el clip empieza antes para que se vea la ventana."
+        "(`held_to_decision`). Se excluyen las decisiones con menos de "
+        f"{format(LATE_MIN_CLOCK, '.1f').replace('.', ',')} s de posesión, en las que la ventana "
+        "se cierra por el reloj y no por el tirador. Ordenados por el valor perdido (mejor pase "
+        "de la ventana − tiro) y, a igualdad, por el retraso entre el fin de la ventaja y el "
+        "frame de decisión; el clip empieza antes para que se vea la ventana."
     ),
 }
 
@@ -67,8 +70,10 @@ def _row(kind: str, row: Mapping[str, Any]) -> str:
         f"{row['period']}.º · {clock}",
         f"{_num(row['shot_value'])} ({row['rule']})",
         alt,
-        _metric(kind, row),
     ]
+    if kind == "late":
+        cells.append(f"{_num(row['lost_value'])} pts")
+    cells.append(_metric(kind, row))
     if kind == "late":  # the value lost: the best pass inside the window, and whose it was
         peak = row["window_peak_value"]
         cells.append("—" if peak is None else f"{row['window_handler']} {_num(peak)}")
@@ -88,10 +93,15 @@ def _section(
     if table.height == 0:
         return [*lines, "Ningún tiro cumple el filtro.", ""]
     window = " Mejor pase en la ventana |" if kind == "late" else ""
+    lost = " Valor perdido |" if kind == "late" else ""
     lines += [
-        f"| # | Partido | Jugador | Cuarto y reloj | Tiro | Mejor alternativa | {metric} "
+        f"| # | Partido | Jugador | Cuarto y reloj | Tiro | Mejor alternativa |{lost} {metric} "
         f"|{window} Titular |",
-        "|---:|---|---|---|---|---|---|" + ("---|" if kind == "late" else "") + "---|",
+        "|---:|---|---|---|---|---|"
+        + ("---|" if kind == "late" else "")
+        + "---|"
+        + ("---|" if kind == "late" else "")
+        + "---|",
         *(_row(kind, r) for r in table.iter_rows(named=True)),
         "",
     ]

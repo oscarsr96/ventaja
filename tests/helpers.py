@@ -2,6 +2,8 @@
 
 from typing import Any, Literal
 
+import polars as pl
+
 from ventaja.model.decision import Decision, Option
 from ventaja.model.snapshot import BallPos, PlayerPos, Snapshot
 
@@ -96,3 +98,40 @@ def decision_with(**overrides: Any) -> Decision:
         ],
     }
     return Decision(**{**fields, **overrides})
+
+
+def make_decisions(rows: list[dict[str, Any]]) -> pl.DataFrame:
+    """A layer-1 decisions frame from partial rows (defaults: a readable gather, cost 0.3)."""
+    from ventaja.decision.cost import DECISION_SCHEMA
+
+    base: dict[str, Any] = {
+        "game_id": 1,
+        "shooter_id": 10,
+        "decision_frame": 500,
+        "release_frame": 510,
+        "rule": "gather",
+        "reason": None,
+        "shot_clock": 12.0,
+        "shot_value": 0.9,
+        "best_alt_player_id": 11,
+        "best_alt_type": "open_corner",
+        "best_alt_value": 1.2,
+        "cost": 0.3,
+        "good_read": False,
+        "confidence": 1.0,
+    }
+    return pl.DataFrame([base | r for r in rows], schema=DECISION_SCHEMA)
+
+
+def make_summaries(rows: list[dict[str, Any]]) -> pl.DataFrame:
+    """A layer-2 curve-summary frame from partial rows (defaults: verdict ``none``)."""
+    from ventaja.decision.curve import SUMMARY_SCHEMA
+
+    base: dict[str, Any] = {
+        "game_id": 1,
+        "verdict": "none",
+        "advantage_seconds": 0.0,
+        "held_to_decision": False,
+        "shot_value": 0.9,
+    }
+    return pl.DataFrame([base | r for r in rows], schema=SUMMARY_SCHEMA)
