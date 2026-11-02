@@ -52,3 +52,8 @@ PASS_DISTANCE_HARD = 60.0  # ft, viability falls linearly to zero at this length
 # Classification of the ignored alternative.
 OPEN_DEF_DIST = 6.0  # ft, nearest defender at least this far makes the option "open"
 CUT_SPEED = 4.0  # ft/s toward the hoop that makes a paint option a "cut"
+
+# Advantage curve (layer 2): the best option of the ball handler sampled along the possession.
+CURVE_STEP_FRAMES = 5  # frames between curve samples (25 fps / 5 = 5 Hz), counted back from release
+ADVANTAGE_TOLERANCE = 0.10  # pts, an option is still "the advantage" while within this of the peak
+CURVE_MIN_ROWS = 3  # curves with fewer rows get no advantage window (verdict ``no_window``)

@@ -66,3 +66,33 @@ class Decision(_Frozen):
     good_read: bool | None
     confidence: float
     options: list[Option]
+
+
+Verdict = Literal["on_time", "late", "early", "no_window"]
+
+
+class CurveSummary(_Frozen):
+    """The advantage window of a possession curve against the shot's decision frame.
+
+    ``span_start``/``span_end`` are the first and last sampled frames of the curve (None when
+    it is empty). The window is the contiguous run of rows around the peak whose
+    ``best_value`` stays within ``ADVANTAGE_TOLERANCE`` of it. ``release_lag_seconds`` is 0.0
+    when the decision frame falls inside the window, positive when it comes after (``late``)
+    and negative when before (``early``). With fewer than ``CURVE_MIN_ROWS`` rows the verdict
+    is ``no_window``, the optional fields are None and ``advantage_seconds`` is 0.0.
+    """
+
+    shot_id: str
+    game_id: int
+    n_rows: int
+    span_start: int | None
+    span_end: int | None
+    peak_frame: int | None
+    peak_value: float | None
+    window_start: int | None
+    window_end: int | None
+    advantage_seconds: float
+    release_lag_seconds: float | None
+    value_at_decision: float | None
+    shot_value: float
+    verdict: Verdict
