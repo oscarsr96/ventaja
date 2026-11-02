@@ -71,6 +71,8 @@ _TEXT: dict[Lang, dict[str, str]] = {
     "es": {
         "small_one": "Con {n} tiro valorado la muestra es pequeña",
         "small_many": "Con {n} tiros valorados la muestra es pequeña",
+        "read_one": "Con {r} tiro legible de {n} valorados la muestra es pequeña",
+        "read_many": "Con {r} tiros legibles de {n} valorados la muestra es pequeña",
         "good": "elige bien el tiro",
         "leaves": "suele tener un pase mejor disponible",
         "average": "decide en la media de la liga",
@@ -85,6 +87,8 @@ _TEXT: dict[Lang, dict[str, str]] = {
     "en": {
         "small_one": "With {n} valued shot the sample is small",
         "small_many": "With {n} valued shots the sample is small",
+        "read_one": "With {r} readable shot of {n} valued the sample is small",
+        "read_many": "With {r} readable shots of {n} valued the sample is small",
         "good": "picks the shot well",
         "leaves": "usually has a better pass available",
         "average": "decides at the league average",
@@ -204,7 +208,11 @@ def profile_phrase(row: Mapping[str, Any], league: Mapping[str, Any], *, lang: L
     clock = _clock(row, buckets, t)
     if n_readable < PROFILE_MIN_SHOTS:
         n_shots = int(_num(row, "n_shots") or n_readable)
-        opening = (t["small_one"] if n_shots == 1 else t["small_many"]).format(n=n_shots)
+        if n_readable < n_shots:  # the sentence counts what it gates on, and the valued shots
+            key = "read_one" if n_readable == 1 else "read_many"
+            opening = t[key].format(r=n_readable, n=n_shots)
+        else:
+            opening = (t["small_one"] if n_shots == 1 else t["small_many"]).format(n=n_shots)
         return _sentence([opening, *([clock] if clock else [])])
 
     first = [

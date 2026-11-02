@@ -82,11 +82,21 @@ def test_small_sample_phrase() -> None:
 def test_small_sample_singular_and_clock_rule() -> None:
     one = row_with(n_shots=1, n_readable=1)
     assert profile_phrase(one, LEAGUE).startswith("Con 1 tiro valorado la")
-    # R4: the opening counts valued shots (n_shots); the gate stays on n_readable
+    # R5: with unreadable shots the opening states both counts; the gate stays on n_readable
     walker = row_with(n_shots=2, n_readable=1)
-    assert profile_phrase(walker, LEAGUE).startswith("Con 2 tiros valorados la muestra")
+    assert profile_phrase(walker, LEAGUE).startswith(
+        "Con 1 tiro legible de 2 valorados la muestra es pequeña"
+    )
     gated = row_with(n_shots=12, n_readable=7)
-    assert profile_phrase(gated, LEAGUE).startswith("Con 12 tiros valorados la muestra")
+    assert profile_phrase(gated, LEAGUE).startswith(
+        "Con 7 tiros legibles de 12 valorados la muestra es pequeña"
+    )
+    assert profile_phrase(gated, LEAGUE, lang="en").startswith(
+        "With 7 readable shots of 12 valued the sample is small"
+    )
+    assert profile_phrase(walker, LEAGUE, lang="en").startswith(
+        "With 1 readable shot of 2 valued the sample is small"
+    )
     row = row_with(n_readable=6, **{"n_24-14": 2, "n_14-6": 2, "n_6-0": 0, "cost_6-0": 0.9})
     row["cost_24-14"] = 0.1
     row["cost_14-6"] = 0.4
