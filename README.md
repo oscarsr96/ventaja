@@ -75,14 +75,16 @@ DeWayne Russell · Leche Rio Breogan · 30 tiros (30 legibles) · 2 partidos
 Valor
   tiro 0.748 vs mejor alternativa 1.076  [liga 0.959 vs 1.017]
   coste medio 0.367  [liga 0.199]
+  valor de las alternativas descontado por la viabilidad del pase (carril, distancia, reloj < 2 s)
 Por reloj
+  tramo     n   coste    liga
   24-14    11   0.292   0.164
   14-6     11   0.390   0.205
   6-0       7   0.502   0.234
-Suele tener un pase mejor disponible; la opción que más deja pasar es el pase extra; su coste sube con el reloj agotándose.
+Suele tener un pase mejor disponible; la opción que más deja pasar es el pase extra; su coste es más alto con el reloj agotándose.
 ```
 
-Cards cover 10 games: 190 players have one from a single valued shot (median 6 shots), and `n` is always shown. The phrase only claims tendencies with at least 8 readable shots. Season rates are raw SkillCorner aggregates, not shrunk. Over readable decisions (the diagnostic's 0.184 includes the 48 no-pass decisions at cost 0) the league's cost rises as the shot clock runs down (0.164, 0.205, 0.234).
+Cards cover 10 games: 190 players have one from a single valued shot (median 6 shots), and `n` is always shown. The phrase only claims tendencies with at least 8 readable shots, and its clock clause compares each bucket with the league's. Lost moments on the card use the reel's 2.5 s clock floor: across the league the shooter held the ball while a window closed in 13.5% of shots. Season rates are raw SkillCorner aggregates, not shrunk. Over readable decisions (the diagnostic's 0.184 includes the 48 no-pass decisions at cost 0) the league's cost rises as the shot clock runs down (0.164, 0.205, 0.234).
 
 `artifacts/players.parquet` and `teams.parquet` ship in the repo; `uv run ventaja player build --out artifacts` regenerates them.
 
