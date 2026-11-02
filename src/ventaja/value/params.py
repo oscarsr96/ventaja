@@ -76,3 +76,10 @@ MIN_RANK_CONFIDENCE = 0.8  # share of the ten players detected at the decision f
 MIN_RANK_ADVANTAGE = 0.4  # s, a lost moment needs an advantage of at least two sampled rows
 REEL_LATE_LEAD_S = 1.0  # s shown before a late clip's window starts
 REEL_LATE_MAX_BEFORE_S = 12.0  # s, cap of a late clip's lead before the decision frame
+
+# Player card (layer 3): shot-clock buckets and the kinds of ignored alternative.
+# (label, lower bound exclusive, upper bound inclusive); the last bucket also includes 0.0.
+# Same membership as the buckets of ``validate.decisions.cost_falls_with_clock``.
+CLOCK_BUCKETS = (("24-14", 14.0, 24.0), ("14-6", 6.0, 14.0), ("6-0", 0.0, 6.0))
+# Types of ``best_alt_type`` a card counts as an ignored alternative, in tie-break order.
+ALT_TYPES = ("rim_cut", "open_corner", "extra_pass", "post", "other")

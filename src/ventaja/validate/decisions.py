@@ -4,15 +4,16 @@ from typing import Protocol
 
 import polars as pl
 
+from ventaja.profile.aggregate import clock_bucket_expr
+from ventaja.value.params import CLOCK_BUCKETS
+
 __all__ = ["checks"]
 
 Check = tuple[str, bool, str]
 
 # (label, filter) of the shot-clock buckets, from the start of the possession to its end.
-_CLOCK_BUCKETS: tuple[tuple[str, pl.Expr], ...] = (
-    ("24-14", pl.col("shot_clock") > 14),
-    ("14-6", (pl.col("shot_clock") > 6) & (pl.col("shot_clock") <= 14)),
-    ("6-0", pl.col("shot_clock") <= 6),
+_CLOCK_BUCKETS: tuple[tuple[str, pl.Expr], ...] = tuple(
+    (label, clock_bucket_expr(i)) for i, (label, _, _) in enumerate(CLOCK_BUCKETS)
 )
 MAX_EXCLUDED_SHARE = 0.15
 LOW_PRIOR, HIGH_PRIOR = 0.30, 0.45
