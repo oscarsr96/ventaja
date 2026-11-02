@@ -17,6 +17,7 @@ from ventaja.errors import DataNotFoundError, NoTrackingError, VentajaError
 from ventaja.geometry.court import orient_frame
 from ventaja.model.decision import DecisionFrame
 from ventaja.model.snapshot import BallPos, PlayerPos, Snapshot
+from ventaja.value.params import SHOT_CLOCK_OFF
 
 
 def _row_containing(df: pl.DataFrame, frame_idx: int) -> dict[str, Any] | None:
@@ -26,6 +27,18 @@ def _row_containing(df: pl.DataFrame, frame_idx: int) -> dict[str, Any] | None:
 
 
 _REACH = 2  # neighbour frames read on each side of a frame for velocity
+
+
+def _shot_clock(raw: float | None) -> float | None:
+    """The snapshot's shot clock: a raw ``SHOT_CLOCK_OFF`` (0.0) is the clock off, unknown.
+
+    SkillCorner reports 0.0 while the shot clock is switched off (e.g. the end of a period
+    with under 24 s on the game clock), so 0.0 reads as ``None`` (ADR-0007).
+    """
+    if raw is None or raw == SHOT_CLOCK_OFF:
+        return None
+    return float(raw)
+
 
 Velocity = tuple[float | None, float | None]
 
@@ -284,7 +297,7 @@ class Aligner:
             wall_clock=first["wall_clock"],
             period=first["period"],
             game_clock=first["game_clock"],
-            shot_clock=first["shot_clock"],
+            shot_clock=_shot_clock(first["shot_clock"]),
             possession_id=possession["id"],
             chance_id=chance["id"] if chance else None,
             off_team_id=off_team_id,

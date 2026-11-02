@@ -182,3 +182,21 @@ def test_window_across_possession_boundary_orients_each_frame_by_its_possession(
     assert set(by_possession) == {before["id"], after["id"]}
     assert all(len(teams) == 1 for teams in by_possession.values())
     assert by_possession[before["id"]] != by_possession[after["id"]]
+
+
+@pytest.mark.parametrize(("raw", "expected"), [(0.0, None), (0.4, 0.4)])
+def test_shot_clock_of_zero_means_off(
+    built_fixture: Settings, raw: float, expected: float | None
+) -> None:
+    """ADR-0007: a raw shot clock of exactly 0.0 is the clock switched off, so it is unknown."""
+    a = Aligner(114243, built_fixture)
+    a._tracking = a._tracking.with_columns(
+        shot_clock=pl.when(pl.col("frame_idx") == SHOT_FRAME)
+        .then(pl.lit(raw))
+        .otherwise(pl.col("shot_clock"))
+    )
+    s = a.snapshot(SHOT_FRAME)
+    if expected is None:
+        assert s.shot_clock is None
+    else:
+        assert s.shot_clock == pytest.approx(expected)
