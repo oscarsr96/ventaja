@@ -53,3 +53,19 @@ class Settings(BaseModel):
     def tracking_parquet(self, game_id: int) -> Path:
         """Path of the built long-format tracking parquet of a game."""
         return self.build_dir / "tracking" / f"{game_id}.parquet"
+
+    def meta_parquet(self, table: str) -> Path:
+        """Path of a built metadata table (``games``, ``players`` or ``matches``)."""
+        return self.build_dir / "meta" / f"{table}.parquet"
+
+    def aggregates_parquet(self, name: str) -> Path:
+        """Path of a built season-aggregate table (``shots``, ``drives`` or ``picks``)."""
+        return self.build_dir / "aggregates" / f"{name}.parquet"
+
+    def decisions_parquet(self, game_id: int) -> Path:
+        """Path of the built decisions parquet of a game."""
+        return self.build_dir / "decisions" / f"{game_id}.parquet"
+
+    def decisions_options_parquet(self, game_id: int) -> Path:
+        """Path of the built per-option parquet of a game's decisions."""
+        return self.build_dir / "decisions" / f"{game_id}.options.parquet"

@@ -4,11 +4,20 @@ All coordinates are in feet in the offense-oriented frame (offensive hoop at ``(
 see ADR-0001. Snapshots are built by ``ventaja.decision.align.Aligner``.
 """
 
+import math
+
 from ventaja.model.core import _Frozen
 
 
+def _hypot(vx: float | None, vy: float | None) -> float | None:
+    return None if vx is None or vy is None else math.hypot(vx, vy)
+
+
 class PlayerPos(_Frozen):
-    """Position and kinematics of one player in one frame."""
+    """Position and kinematics of one player in one frame.
+
+    ``vx``/``vy`` are in ft/s, offense-oriented, by finite difference of tracked positions.
+    """
 
     player_id: int
     team_id: int
@@ -17,6 +26,13 @@ class PlayerPos(_Frozen):
     speed: float
     is_detected: bool
     pred_error: float
+    vx: float | None = None
+    vy: float | None = None
+
+    @property
+    def speed_vec(self) -> float | None:
+        """Speed in ft/s from the finite-difference velocity, or None if unavailable."""
+        return _hypot(self.vx, self.vy)
 
 
 class BallPos(_Frozen):
@@ -27,6 +43,13 @@ class BallPos(_Frozen):
     z: float
     speed: float
     is_detected: bool
+    vx: float | None = None
+    vy: float | None = None
+
+    @property
+    def speed_vec(self) -> float | None:
+        """Speed in ft/s from the finite-difference velocity, or None if unavailable."""
+        return _hypot(self.vx, self.vy)
 
 
 class Snapshot(_Frozen):

@@ -8,6 +8,7 @@ import math
 import os
 from pathlib import Path
 
+import polars as pl
 import pytest
 
 from ventaja.config import GAME_IDS, Settings
@@ -63,3 +64,55 @@ def test_every_shot_snapshot_puts_shooter_on_offense_at_shot_location(
             if dist > MAX_SHOOTER_DIST_FT:
                 failures.append(f"{shot_id}: shooter {dist:.2f} ft from (loc_x, loc_y)")
     assert not failures, f"{len(failures)} of {a._shots.height} shots fail:\n" + "\n".join(failures)
+
+
+def test_shot_option_points_match_the_event(real_settings: Settings) -> None:
+    """The taken shot is valued with the event's points: 3 if ``three`` else 2 (ADR-0004)."""
+    from ventaja.data.load import load_decision_options, load_events
+
+    for game_id in GAME_IDS:
+        shots = load_events(game_id, "shots", real_settings).select(
+            pl.col("id").alias("shot_id"), "three"
+        )
+        rows = (
+            load_decision_options(game_id, real_settings)
+            .filter(pl.col("option_type") == "shot")
+            .join(shots, on="shot_id", how="left")
+        )
+        assert rows.height > 0 and rows["three"].null_count() == 0
+        expected = pl.when(pl.col("three")).then(3).otherwise(2)
+        bad = rows.filter(
+            (pl.col("points") != expected)
+            | (pl.col("is_three") != pl.col("three").cast(pl.Float64))
+        )
+        assert bad.height == 0, f"game {game_id}: {bad.select('shot_id', 'points', 'three')}"
+
+
+def test_decision_face_validity_checks(real_settings: Settings) -> None:
+    """The four automatic sanity checks (spec 5.5) over the decisions of the ten games."""
+    from ventaja.data.load import load_decision_options, load_decisions
+    from ventaja.validate.decisions import checks
+    from ventaja.value.model import ValueModel
+
+    result = {
+        name: (ok, detail)
+        for name, ok, detail in checks(
+            pl.concat([load_decisions(g, real_settings) for g in GAME_IDS], how="diagonal"),
+            pl.concat([load_decision_options(g, real_settings) for g in GAME_IDS], how="diagonal"),
+            ValueModel.default(),
+        )
+    }
+    assert len(result) == 4
+    for name in (
+        "rim_open_beats_contested_three",
+        "prior_moves_value",
+        "excluded_share_below_15pct",
+    ):
+        assert result[name][0], f"{name}: {result[name][1]}"
+    ok, detail = result["cost_falls_with_clock"]
+    if not ok:
+        pytest.xfail(
+            "known: mean cost by clock is 0.148 (24-14), 0.184 (14-6), 0.122 (6-0), "
+            f"not monotone (see ADR-0004); measured now: {detail}"
+        )
+    pytest.fail(f"cost_falls_with_clock now passes ({detail}); drop the xfail", pytrace=False)

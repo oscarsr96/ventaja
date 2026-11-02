@@ -2,7 +2,8 @@
 
 import sys
 from collections.abc import Callable
-from typing import Annotated
+from pathlib import Path
+from typing import Annotated, Any
 
 import duckdb
 import httpx
@@ -15,15 +16,29 @@ from ventaja.data import build as build_module
 from ventaja.data import pull as pull_module
 from ventaja.data.catalog import files_for
 from ventaja.data.duck import connect
+from ventaja.data.load import load_decision_options, load_decisions
 from ventaja.decision.align import Aligner
+from ventaja.decision.cost import build_decisions
 from ventaja.errors import DataNotFoundError, VentajaError
+from ventaja.validate import decisions as decisions_checks
 from ventaja.validate import score as score_module
+from ventaja.value import model as model_module
+from ventaja.value.features import shot_rows
+from ventaja.value.priors import Priors
+from ventaja.viz import kit as kit_module
+from ventaja.viz.text import format_option_table
 
 app = typer.Typer(name="ventaja", no_args_is_help=True)
 data = typer.Typer(help="Download, inspect and build SkillCorner data.", no_args_is_help=True)
 app.add_typer(data, name="data")
 validate = typer.Typer(help="Check the event model against official data.", no_args_is_help=True)
 app.add_typer(validate, name="validate")
+model = typer.Typer(help="Train and inspect the value model.", no_args_is_help=True)
+app.add_typer(model, name="model")
+decisions = typer.Typer(help="Build and inspect shot decision costs.", no_args_is_help=True)
+app.add_typer(decisions, name="decisions")
+review = typer.Typer(help="Prepare the live review of decisions.", no_args_is_help=True)
+app.add_typer(review, name="review")
 
 
 def _version_callback(value: bool) -> None:
@@ -128,9 +143,17 @@ def data_build(
             if not events_only:
                 path = build_module.build_tracking(game_id, settings)
                 typer.echo(f"wrote {game_id} tracking -> {path}")
+            for table, path in build_module.build_meta(game_id, settings).items():
+                typer.echo(f"meta {game_id} {table} -> {path}")
         except VentajaError as exc:
             typer.echo(f"error: {exc}", err=True)
             raise typer.Exit(code=1) from exc
+    aggregates = build_module.build_aggregates(settings)
+    for name in build_module.AGGREGATE_TABLES:
+        if name in aggregates:
+            typer.echo(f"aggregate {name} -> {aggregates[name]}")
+        else:
+            typer.echo(f"skip aggregate {name} (no CSV in {settings.raw_path('aggregates')})")
 
 
 def _unique(names: list[str]) -> list[str]:
@@ -186,6 +209,9 @@ def snapshot(
     game: Annotated[
         int | None, typer.Option("--game", help="Game id (parsed from the shot id if omitted).")
     ] = None,
+    decision: Annotated[
+        bool, typer.Option("--decision", help="Use the decision frame instead of the release.")
+    ] = False,
 ) -> None:
     """Print the offense-oriented snapshot at a shot's frame; the shooter is marked *."""
     try:
@@ -193,10 +219,13 @@ def snapshot(
         game_id = game if game is not None else _game_of_shot(shot_id)
         aligner = Aligner(game_id, settings)
         shooter = aligner.shot(shot_id)["shooter_id"]
-        snap = aligner.snapshot_for_shot(shot_id)
+        chosen = aligner.decision_frame(shot_id) if decision else None
+        snap = aligner.snapshot_for_shot(shot_id, decision=decision)
     except VentajaError as exc:
         typer.echo(f"error: {exc}", err=True)
         raise typer.Exit(code=1) from exc
+    if chosen is not None:
+        typer.echo(f"decision frame {chosen.frame_idx} ({chosen.rule})")
     shot_clock = "-" if snap.shot_clock is None else f"{snap.shot_clock:.2f}"
     typer.echo(
         f"frame {snap.frame_idx}  period {snap.period}  "
@@ -230,3 +259,229 @@ def validate_score(game: GameOption = None, all_games: AllOption = False) -> Non
         )
     if not all(ok for *_, ok in rows):
         raise typer.Exit(code=1)
+
+
+@validate.command("decisions")
+def validate_decisions(
+    game: GameOption = None,
+    all_games: AllOption = False,
+    model_path: Annotated[
+        Path | None, typer.Option("--model", help="Model JSON path (default: versioned model).")
+    ] = None,
+    allow_fail: Annotated[
+        list[str] | None,
+        typer.Option(
+            "--allow-fail",
+            help="Check name whose failure is reported but does not fail (repeatable).",
+        ),
+    ] = None,
+) -> None:
+    """Run the face-validity checks over the decisions tables (default: all games)."""
+    ids = game if game and not all_games else GAME_IDS
+    try:
+        settings = Settings.from_env()
+        loaded = (
+            model_module.ValueModel.load(model_path)
+            if model_path
+            else model_module.ValueModel.default()
+        )
+        results = decisions_checks.checks(
+            pl.concat([load_decisions(g, settings) for g in ids], how="diagonal"),
+            pl.concat([load_decision_options(g, settings) for g in ids], how="diagonal"),
+            loaded,
+        )
+    except VentajaError as exc:
+        typer.echo(f"error: {exc}", err=True)
+        raise typer.Exit(code=1) from exc
+    allowed = set(allow_fail or [])
+    unknown = allowed - {name for name, _, _ in results}
+    if unknown:
+        typer.echo(f"error: unknown check for --allow-fail: {', '.join(sorted(unknown))}", err=True)
+        raise typer.Exit(code=2)
+    for name, ok, detail in results:
+        status = "ok  " if ok else "FAIL (allowed)" if name in allowed else "FAIL"
+        typer.echo(f"{status} {name} — {detail}")
+    if not all(ok or name in allowed for name, ok, _ in results):
+        raise typer.Exit(code=1)
+
+
+DEFAULT_FIGURE_PATH = Path("docs/figures/calibration.png")
+
+
+def _print_metrics(metrics: dict[str, float | None]) -> None:
+    for name, value in metrics.items():
+        typer.echo(f"{name:>32} {'null' if value is None else f'{value:.4f}'}")
+
+
+def _print_zone_table(rows: list[dict[str, Any]]) -> None:
+    """Per-zone LOGO comparison: mean prediction, observed and league rates."""
+    if not rows:
+        typer.echo("zone table: not stored in this model (retrain to add it)")
+        return
+    typer.echo(f"{'zone':16} {'n':>5} {'mean_pred':>9} {'observed':>9} {'league':>7}")
+    for r in rows:
+        typer.echo(
+            f"{r['zone']:16} {r['n']:>5} {r['mean_pred']:>9.3f} "
+            f"{r['observed_rate']:>9.3f} {r['league_rate']:>7.3f}"
+        )
+
+
+@model.command("train")
+def model_train(
+    game: GameOption = None,
+    all_games: AllOption = False,
+    out: Annotated[Path | None, typer.Option("--out", help="Model JSON path.")] = None,
+    figure: Annotated[
+        Path, typer.Option("--figure", help="Calibration figure path.")
+    ] = DEFAULT_FIGURE_PATH,
+) -> None:
+    """Train with leave-one-game-out validation and save the model and calibration figure."""
+    try:
+        settings = Settings.from_env()
+        priors = Priors.from_settings(settings)
+        ids = GAME_IDS if all_games or not game else game
+        frames = [shot_rows(Aligner(g, settings), priors) for g in ids]
+        df = pl.concat([f for f in frames if not f.is_empty()], how="diagonal_relaxed")
+        fitted, preds = model_module.train_logo(df)
+        fitted.zone_table = model_module.zone_table(preds, priors).to_dicts()
+        path = out or model_module.DEFAULT_MODEL_PATH
+        fitted.save(path)
+        model_module.plot_calibration(
+            model_module.calibration_table(preds),
+            figure,
+            n_shots=preds.height,
+            logloss=fitted.metrics["logloss"],
+        )
+    except (VentajaError, ValueError) as exc:
+        typer.echo(f"error: {exc}", err=True)
+        raise typer.Exit(code=1) from exc
+    typer.echo(f"games {fitted.trained_on}")
+    _print_metrics(fitted.metrics)
+    _print_zone_table(fitted.zone_table)
+    typer.echo(f"model -> {path}")
+    typer.echo(f"figure -> {figure}")
+
+
+@model.command("report")
+def model_report(
+    path: Annotated[Path | None, typer.Option("--model", help="Model JSON path.")] = None,
+) -> None:
+    """Print the metrics and standardized coefficients of a saved model."""
+    try:
+        loaded = model_module.ValueModel.load(path or model_module.DEFAULT_MODEL_PATH)
+    except VentajaError as exc:
+        typer.echo(f"error: {exc}", err=True)
+        raise typer.Exit(code=1) from exc
+    typer.echo(f"trained on {loaded.trained_on} ({loaded.n_rows} shots) at {loaded.trained_at}")
+    _print_metrics(loaded.metrics)
+    with pl.Config(tbl_rows=50):
+        typer.echo(repr(loaded.feature_table()))
+    _print_zone_table(loaded.zone_table)
+
+
+def _decision_summary(df: pl.DataFrame) -> str:
+    valid = df.filter(pl.col("rule") != "excluded")
+    excluded = df.filter(pl.col("rule") == "excluded").group_by("reason").len().sort("reason")
+    reasons = ", ".join(f"{r} {n}" for r, n in excluded.iter_rows()) or "none"
+    reads = valid["good_read"].drop_nulls() if valid.height else pl.Series([], dtype=pl.Boolean)
+    mean_cost = f"{float(valid['cost'].mean()):.3f}" if valid.height else "n/a"  # type: ignore[arg-type]
+    good = f"{float(reads.mean()):.1%}" if reads.len() else "n/a"  # type: ignore[arg-type]
+    no_pass = valid.height - reads.len()
+    return (
+        f"{df.height} shots: valid {valid.height}; excluded {reasons}; "
+        f"mean cost {mean_cost}; good_read {good} (no viable pass {no_pass})"
+    )
+
+
+@decisions.command("build")
+def decisions_build(
+    game: GameOption = None,
+    all_games: AllOption = False,
+    model_path: Annotated[
+        Path | None, typer.Option("--model", help="Model JSON path (default: versioned model).")
+    ] = None,
+    out: Annotated[
+        Path | None,
+        typer.Option("--out", help="Output directory (default: the build's decisions/)."),
+    ] = None,
+) -> None:
+    """Value every shot against its pass options and write the decisions tables."""
+    if not game and not all_games:
+        typer.echo("error: choose games with --game ID (repeatable) or --all", err=True)
+        raise typer.Exit(code=2)
+    try:
+        settings = Settings.from_env()
+        loaded = (
+            model_module.ValueModel.load(model_path)
+            if model_path
+            else model_module.ValueModel.default()
+        )
+        for game_id in GAME_IDS if all_games else game or []:
+            path = build_decisions(game_id, settings, model=loaded, out_dir=out)
+            typer.echo(f"game {game_id}: {_decision_summary(pl.read_parquet(path))}")
+            typer.echo(f"  -> {path}")
+    except VentajaError as exc:
+        typer.echo(f"error: {exc}", err=True)
+        raise typer.Exit(code=1) from exc
+
+
+def _fmt(value: float | None, spec: str = ".3f") -> str:
+    return "-" if value is None else format(value, spec)
+
+
+def _read(good_read: bool | None) -> str:
+    return "- (no viable pass)" if good_read is None else str(good_read)
+
+
+@decisions.command("show")
+def decisions_show(
+    shot_id: Annotated[str, typer.Argument(help="Shot id, e.g. shot-114243-1-0.")],
+) -> None:
+    """Print a shot's decision and its five options (* shooter, > best alternative)."""
+    try:
+        settings = Settings.from_env()
+        game_id = _game_of_shot(shot_id)
+        hit = load_decisions(game_id, settings).filter(pl.col("shot_id") == shot_id)
+        if hit.height == 0:
+            raise DataNotFoundError(f"shot {shot_id} not found in the decisions of {game_id}")
+        d = hit.row(0, named=True)
+        if d["rule"] == "excluded":
+            raise VentajaError(f"shot {shot_id} is excluded: {d['reason']}")
+        opts = load_decision_options(game_id, settings).filter(pl.col("shot_id") == shot_id)
+    except VentajaError as exc:
+        typer.echo(f"error: {exc}", err=True)
+        raise typer.Exit(code=1) from exc
+    typer.echo(
+        f"{shot_id}  frame {d['decision_frame']} ({d['rule']})  release {d['release_frame']}  "
+        f"shot_clock {_fmt(d['shot_clock'], '.2f')}"
+    )
+    typer.echo(
+        f"shot value {_fmt(d['shot_value'])}  best alt {_fmt(d['best_alt_value'])}  "
+        f"cost {_fmt(d['cost'])}  good_read {_read(d['good_read'])}  "
+        f"confidence {_fmt(d['confidence'], '.1f')}"
+    )
+    typer.echo(
+        format_option_table(
+            opts, shooter_id=d["shooter_id"], best_alt_player_id=d["best_alt_player_id"]
+        )
+    )
+
+
+@review.command("sample")
+def review_sample(
+    out: Annotated[Path, typer.Option("--out", help="Output directory of the kit.")],
+    game: GameOption = None,
+    all_games: AllOption = False,
+    n: Annotated[int, typer.Option("--n", help="Number of shots to sample.")] = 20,
+    seed: Annotated[int, typer.Option("--seed", help="Random seed of the sample.")] = 7,
+) -> None:
+    """Sample shots stratified by decision rule, render one GIF each and write review.md."""
+    ids = GAME_IDS if all_games or not game else game
+    try:
+        path = kit_module.review_kit(Settings.from_env(), list(ids), n, seed, out)
+    except VentajaError as exc:
+        typer.echo(f"error: {exc}", err=True)
+        raise typer.Exit(code=1) from exc
+    count = sum(line.startswith("## ") for line in path.read_text().splitlines())
+    typer.echo(f"review -> {path}")
+    typer.echo(f"{count} {'GIF' if count == 1 else 'GIFs'} in {path.parent}")

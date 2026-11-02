@@ -92,3 +92,20 @@ def test_data_pull_unknown_game_is_rejected(
     assert result.exit_code == 1
     assert isinstance(result.exception, SystemExit)
     assert "error:" in result.output and "999" in result.output
+
+
+def test_data_build_writes_meta_and_aggregates(
+    fixture_settings: Settings, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("VENTAJA_DATA_DIR", str(fixture_settings.data_dir))
+    monkeypatch.setenv("VENTAJA_BUILD_DIR", str(fixture_settings.build_dir))
+    result = CliRunner().invoke(app, ["data", "build", "--game", "114243", "--events-only"])
+    assert result.exit_code == 0, result.output
+    assert fixture_settings.meta_parquet("players").exists()
+    assert fixture_settings.aggregates_parquet("shots").exists()
+    assert "skip aggregate drives" in result.output
+
+
+def test_model_report_missing_exits_1(tmp_path: Path) -> None:
+    result = CliRunner().invoke(app, ["model", "report", "--model", str(tmp_path / "x.json")])
+    assert result.exit_code == 1 and "ventaja model train" in result.output

@@ -11,8 +11,11 @@ requires-python = ">=3.12"
 dependencies = [
     "duckdb>=2.0.0",
     "httpx>=0.28.1",
+    "matplotlib>=3.11.2",
+    "numpy>=2.5.4",
     "polars>=2.1.0",
     "pydantic>=2",
+    "scikit-learn>=1.9.1",
     "typer>=0.27.3",
 ]
 
@@ -47,3 +50,7 @@ testpaths = ["tests"]
 markers = [
     "realdata: needs the full SkillCorner data (VENTAJA_REALDATA_DIR, VENTAJA_REALDATA_BUILD_DIR)",
 ]
+
+[[tool.mypy.overrides]]
+module = ["sklearn.*", "matplotlib.*"]
+ignore_missing_imports = true

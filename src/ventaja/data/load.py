@@ -10,6 +10,8 @@ from ventaja.config import Settings
 from ventaja.errors import DataNotFoundError
 from ventaja.model.core import Game, Match, Player, Team
 
+# Versioned outputs shipped with the repo (an editable install), like ``DEFAULT_MODEL_PATH``.
+ARTIFACTS_DIR = Path(__file__).parents[3] / "artifacts"
 ALIASES_FILE = "player_id_aliases.csv"
 MATCHES_FILE = "matches.json"
 
@@ -173,3 +175,64 @@ def frame_range(game_id: int, settings: Settings) -> tuple[int, int]:
         .row(0)
     )
     return int(row[0]), int(row[1])
+
+
+def load_meta(table: str, settings: Settings) -> pl.DataFrame:
+    """One built metadata table (``games``, ``players`` or ``matches``)."""
+    path = settings.meta_parquet(table)
+    if not path.exists():
+        raise DataNotFoundError(f"{path} not found; run `ventaja data build --game ID` first")
+    return pl.read_parquet(path)
+
+
+def load_aggregates(name: str, settings: Settings) -> pl.DataFrame:
+    """One built season-aggregate table (``shots``, ``drives`` or ``picks``)."""
+    path = settings.aggregates_parquet(name)
+    if not path.exists():
+        raise DataNotFoundError(f"{path} not found; run `ventaja data build --game ID` first")
+    return pl.read_parquet(path)
+
+
+def _decision_tables(root: Path) -> list[Path]:
+    """``{game_id}.parquet`` decision files of a directory (option files excluded)."""
+    return [
+        p for p in sorted(root.glob("[0-9]*.parquet")) if not p.name.endswith(".options.parquet")
+    ]
+
+
+def decisions_dir(settings: Settings) -> Path:
+    """The one directory every decisions reader uses, chosen once and never mixed.
+
+    The build's ``decisions/`` if it holds any ``{game_id}.parquet`` decisions file, else
+    the packaged ``artifacts/decisions/``.
+    """
+    built = settings.build_dir / "decisions"
+    return built if _decision_tables(built) else ARTIFACTS_DIR / "decisions"
+
+
+def decision_files(settings: Settings) -> tuple[list[Path], list[Path]]:
+    """(decision, option) parquet files of ``decisions_dir``.
+
+    Decision files are ``{game_id}.parquet``; option files are ``{game_id}.options.parquet``.
+    """
+    root = decisions_dir(settings)
+    return _decision_tables(root), sorted(root.glob("*.options.parquet"))
+
+
+def _decision_table(game_id: int, name: str, settings: Settings) -> pl.DataFrame:
+    path = decisions_dir(settings) / name
+    if not path.exists():
+        raise DataNotFoundError(
+            f"{path} not found; run `ventaja decisions build --game {game_id}` first"
+        )
+    return pl.read_parquet(path)
+
+
+def load_decisions(game_id: int, settings: Settings) -> pl.DataFrame:
+    """The decisions table of a game, from ``decisions_dir`` (no per-file fallback)."""
+    return _decision_table(game_id, f"{game_id}.parquet", settings)
+
+
+def load_decision_options(game_id: int, settings: Settings) -> pl.DataFrame:
+    """The per-option table of a game's decisions, from ``decisions_dir``."""
+    return _decision_table(game_id, f"{game_id}.options.parquet", settings)
