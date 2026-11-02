@@ -179,11 +179,11 @@ def test_plot_curve_other_handler_shading() -> None:
         orange = tuple(round(c, 3) for c in to_rgb("orange"))
         assert colors.count(grey) == 1 and colors.count(orange) == 1
         labels = [t.get_text() for t in ax.get_legend().get_texts()]
-        assert "advantage (other handler)" in labels and "advantage window" in labels
+        assert "earlier advantage" in labels and "advantage window" in labels
         assert ax.get_legend()._loc == 2  # upper left
     finally:
         plt.close(fig)
-    # without another handler's run there is no grey patch
+    # an earlier run of the window's own handler is shaded grey too
     alone = _synthetic_curve([8] * 7, passes)
     s2 = summarize_curve(
         alone, shot_id="s", game_id=1, decision_frame=130, shot_value=0.8, shooter_id=8

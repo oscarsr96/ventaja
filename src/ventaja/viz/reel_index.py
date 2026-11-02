@@ -8,7 +8,9 @@ import polars as pl
 
 from ventaja.value.params import MIN_RANK_ADVANTAGE, MIN_RANK_CONFIDENCE
 
-__all__ = ["SECTIONS", "write_index"]
+__all__ = ["SECTIONS", "UNAVAILABLE", "write_index"]
+
+UNAVAILABLE = "(clip no disponible"
 
 # (ranking key, heading, metric column header)
 SECTIONS = (
@@ -71,7 +73,12 @@ def _row(kind: str, row: Mapping[str, Any]) -> str:
 
 
 def _section(
-    kind: str, heading: str, metric: str, table: pl.DataFrame, gifs: Mapping[tuple[str, str], str]
+    kind: str,
+    heading: str,
+    metric: str,
+    table: pl.DataFrame,
+    gifs: Mapping[tuple[str, str], str],
+    failures: Mapping[tuple[str, str], str],
 ) -> list[str]:
     lines = [f"## {heading}", "", _INTRO[kind], ""]
     if table.height == 0:
@@ -86,13 +93,15 @@ def _section(
     for r in table.iter_rows(named=True):
         lines += [f"### {r['rank']}. {r['shot_id']} — {r['shooter']}", ""]
         gif = gifs.get((kind, r["shot_id"]))
-        lines += [f"![{r['shot_id']}]({gif})" if gif else "(sin tracking para el clip)", ""]
+        reason = failures.get((kind, r["shot_id"]), "sin clip")
+        lines += [f"![{r['shot_id']}]({gif})" if gif else f"{UNAVAILABLE}: {reason})", ""]
     return lines
 
 
 def write_index(
     tables: Mapping[str, pl.DataFrame],
     gifs: Mapping[tuple[str, str], str],
+    failures: Mapping[tuple[str, str], str],
     *,
     game_ids: list[int],
     game_labels: list[str],
@@ -108,16 +117,19 @@ def write_index(
         f"- Fecha: {date.today().isoformat()}",
         f"- Partidos ({len(game_ids)}): {games}",
         f"- Modelo: entrenado el {trained_at}",
-        f"- Top {n} por sección. Filtro común: regla no excluida, algún pase viable y "
-        f"confidence ≥ {_num(MIN_RANK_CONFIDENCE, '.1f')} (jugadores detectados en el frame "
-        f"de decisión); {excluded_low_confidence} decisiones quedaron fuera por confianza.",
+        f"- Top {n} por sección. Filtro común: regla no excluida y confidence ≥ "
+        f"{_num(MIN_RANK_CONFIDENCE, '.1f')} (jugadores detectados en el frame de decisión); "
+        f"{excluded_low_confidence} decisiones quedaron fuera por confianza. Peores y mejores "
+        "exigen además algún pase viable en el frame de decisión; los momentos perdidos no.",
+        f"- Clips: {sum(t.height for t in tables.values()) - len(failures)} generados, "
+        f"{len(failures)} clips no disponibles.",
         "",
         "Cada clip muestra la pista arriba (atacantes coloreados por el valor de su opción, "
         "flecha roja a la mejor alternativa en el frame de decisión) y la curva de ventaja "
-        "abajo: en naranja la ventana del veredicto, en gris las ventajas de otros jugadores "
-        "con balón. El reloj es el de posesión.",
+        "abajo: en naranja la ventana del veredicto, en gris las ventajas anteriores (de "
+        "otros jugadores con balón o del mismo antes de la ventana). El reloj es el de posesión.",
         "",
     ]
     for kind, heading, metric in SECTIONS:
-        lines += _section(kind, heading, metric, tables[kind], gifs)
+        lines += _section(kind, heading, metric, tables[kind], gifs, failures)
     return "\n".join(lines)

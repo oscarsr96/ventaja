@@ -20,7 +20,7 @@ from ventaja.data.load import (
 )
 from ventaja.decision.align import Aligner
 from ventaja.decision.cost import decision_from_tables
-from ventaja.errors import DataNotFoundError, NoTrackingError
+from ventaja.errors import DataNotFoundError, VentajaError
 from ventaja.value.model import ValueModel
 from ventaja.value.params import (
     CLIP_BEFORE_S,
@@ -31,9 +31,16 @@ from ventaja.value.params import (
 )
 from ventaja.viz.clip import curve_of_shot, render_clip
 from ventaja.viz.kit import jersey_labels, players_table
-from ventaja.viz.reel_index import SECTIONS, write_index
+from ventaja.viz.reel_index import SECTIONS, UNAVAILABLE, write_index
 
-__all__ = ["SECTIONS", "build_reel", "late_before_s", "rank_tables", "rankings"]
+__all__ = [
+    "SECTIONS",
+    "build_reel",
+    "late_before_s",
+    "rank_tables",
+    "rankings",
+    "skipped_clips",
+]
 
 Rankings = tuple[pl.DataFrame, pl.DataFrame, pl.DataFrame, int]
 
@@ -125,15 +132,19 @@ def rank_tables(
 ) -> Rankings:
     """``(worst, best, late, excluded_low_confidence)`` from the decision and curve tables.
 
-    Common filter: ``rule != "excluded"``, ``good_read`` not null (some pass was viable) and
-    ``confidence >= MIN_RANK_CONFIDENCE``; ``excluded_low_confidence`` counts the decisions
-    that pass the first two and fail the third. ``worst``: largest ``cost``. ``best``:
-    ``good_read`` with the largest ``margin = shot_value - best_alt_value``. ``late`` (lost
-    moments): curve verdict ``late`` with ``held_to_decision`` and ``advantage_seconds >=
-    MIN_RANK_ADVANTAGE``, by ``release_lag_seconds``. Each holds the top ``n`` (ties by
-    ``shot_id``) with a 1-based ``rank``; names fall back to ids without metadata tables.
+    Common filter: ``rule != "excluded"`` and ``confidence >= MIN_RANK_CONFIDENCE``;
+    ``excluded_low_confidence`` counts the non-excluded decisions that fail the second.
+    ``worst`` and ``best`` also need ``good_read`` not null (some pass was viable).
+    ``worst``: largest ``cost``. ``best``: ``good_read`` with the largest ``margin =
+    shot_value - best_alt_value``. ``late`` (lost moments): curve verdict ``late`` with
+    ``held_to_decision`` and ``advantage_seconds >= MIN_RANK_ADVANTAGE``, by
+    ``release_lag_seconds``; no viable pass is needed at the decision (the advantage has
+    often closed by then). Each holds the top ``n`` (ties by ``shot_id``) with a 1-based
+    ``rank``; names fall back to ids without metadata tables. Raises ValueError if ``n < 1``.
     """
-    valued = decisions.filter((pl.col("rule") != "excluded") & pl.col("good_read").is_not_null())
+    if n < 1:
+        raise ValueError(f"n must be at least 1, got {n}")
+    valued = decisions.filter(pl.col("rule") != "excluded")
     trusted = pl.col("confidence").fill_null(0.0) >= MIN_RANK_CONFIDENCE
     low = valued.filter(~trusted).height
     names = _names(players)
@@ -165,8 +176,9 @@ def rank_tables(
         ranked = ranked.with_columns(rank=pl.int_range(1, ranked.height + 1, dtype=pl.Int64))
         return ranked.select(_BASE + columns + _TAIL)
 
-    worst = top(df, "cost", ["cost"])
-    best = top(df.filter(pl.col("good_read")), "margin", ["margin"])
+    readable = df.filter(pl.col("good_read").is_not_null())
+    worst = top(readable, "cost", ["cost"])
+    best = top(readable.filter(pl.col("good_read")), "margin", ["margin"])
     late = top(
         df.filter(
             (pl.col("verdict") == "late")
@@ -199,6 +211,32 @@ def late_before_s(*, decision_frame: int, window_start: int) -> float:
     return min(REEL_LATE_MAX_BEFORE_S, max(CLIP_BEFORE_S, lead))
 
 
+def _render_row(
+    t: dict[str, Any],
+    row: dict[str, Any],
+    kind: str,
+    out: Path,
+    fps: int,
+    labels: dict[int, str] | None,
+) -> None:
+    """Render one ranked shot's clip from its game's cached tables and aligner."""
+    decision = decision_from_tables(row["shot_id"], t["decisions"], t["options"])
+    curve, summary = curve_of_shot(row["shot_id"], t["curves"], t["summaries"])
+    before_s = CLIP_BEFORE_S
+    if kind == "late" and row["window_start"] is not None:
+        before_s = late_before_s(
+            decision_frame=row["decision_frame"], window_start=row["window_start"]
+        )
+    render_clip(
+        t["aligner"], decision, curve, summary, out, before_s=before_s, fps=fps, labels=labels
+    )
+
+
+def skipped_clips(index: Path) -> int:
+    """How many ranked shots of a written reel have no clip."""
+    return sum(line.startswith(UNAVAILABLE) for line in index.read_text().splitlines())
+
+
 def build_reel(
     settings: Settings, game_ids: list[int], *, n: int = 10, out_dir: Path, fps: int = 12
 ) -> Path:
@@ -206,14 +244,16 @@ def build_reel(
 
     Clips are ``{rank:02d}-{worst|best|late}-{shot_id}.gif``; lost-moment clips start early
     enough to show the window (``late_before_s``), the others use the clip defaults. One
-    ``Aligner`` per game is shared by every section. A shot whose clip has no tracking is
-    listed without a GIF. Returns the path of ``index.md``.
+    ``Aligner`` per game is shared by every section. A clip that fails with a VentajaError
+    (no tracking, missing curve, ...) is listed without a GIF, with the reason, and counted
+    in the header (``skipped_clips``); ``index.md`` is always written. Returns its path.
     """
     worst, best, late, low = rankings(settings, game_ids, n=n)
     players = players_table(settings)
     tables: dict[int, dict[str, Any]] = {}
     out_dir.mkdir(parents=True, exist_ok=True)
     gifs: dict[tuple[str, str], str] = {}
+    failures: dict[tuple[str, str], str] = {}
     for kind, table in (("worst", worst), ("best", best), ("late", late)):
         for row in table.iter_rows(named=True):
             if row["rule"] == "excluded":  # rank_tables never yields one; never render it
@@ -227,27 +267,11 @@ def build_reel(
                     "curves": load_curves(g, settings),
                     "summaries": load_curve_summaries(g, settings),
                 }
-            t = tables[g]
-            decision = decision_from_tables(row["shot_id"], t["decisions"], t["options"])
-            curve, summary = curve_of_shot(row["shot_id"], t["curves"], t["summaries"])
-            before_s = CLIP_BEFORE_S
-            if kind == "late" and row["window_start"] is not None:
-                before_s = late_before_s(
-                    decision_frame=row["decision_frame"], window_start=row["window_start"]
-                )
             name = f"{row['rank']:02d}-{kind}-{row['shot_id']}.gif"
             try:
-                render_clip(
-                    t["aligner"],
-                    decision,
-                    curve,
-                    summary,
-                    out_dir / name,
-                    before_s=before_s,
-                    fps=fps,
-                    labels=jersey_labels(players, g),
-                )
-            except NoTrackingError:
+                _render_row(tables[g], row, kind, out_dir / name, fps, jersey_labels(players, g))
+            except VentajaError as exc:
+                failures[(kind, row["shot_id"])] = str(exc)
                 continue
             gifs[(kind, row["shot_id"])] = name
     try:
@@ -263,6 +287,7 @@ def build_reel(
         write_index(
             {"worst": worst, "best": best, "late": late},
             gifs,
+            failures,
             game_ids=game_ids,
             game_labels=games,
             trained_at=trained_at,

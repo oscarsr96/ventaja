@@ -682,7 +682,7 @@ _METRIC = {"worst": "cost", "best": "margin", "late": "release_lag_seconds"}
 def reel_rankings(
     game: GameOption = None,
     all_games: AllOption = False,
-    n: Annotated[int, typer.Option("--n", help="Shots per ranking.")] = 10,
+    n: Annotated[int, typer.Option("--n", min=1, help="Shots per ranking.")] = 10,
 ) -> None:
     """Print the worst decisions, the best reads and the lost moments (late, held)."""
     ids = _reel_games(game, all_games)
@@ -707,7 +707,7 @@ def reel_build(
     out: Annotated[Path, typer.Option("--out", help="Output directory of the reel.")],
     game: GameOption = None,
     all_games: AllOption = False,
-    n: Annotated[int, typer.Option("--n", help="Shots per ranking.")] = 10,
+    n: Annotated[int, typer.Option("--n", min=1, help="Shots per ranking.")] = 10,
     fps: Annotated[int, typer.Option("--fps", help="Frames per second of the GIFs.")] = 12,
 ) -> None:
     """Render one clip per ranked shot (three rankings) and write index.md."""
@@ -720,3 +720,5 @@ def reel_build(
     count = len(list(path.parent.glob("*.gif")))
     typer.echo(f"reel -> {path}")
     typer.echo(f"{count} {'GIF' if count == 1 else 'GIFs'} in {path.parent}")
+    skipped = reel_module.skipped_clips(path)
+    typer.echo(f"{skipped} {'clip' if skipped == 1 else 'clips'} not available (see index.md)")

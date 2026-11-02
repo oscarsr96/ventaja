@@ -95,7 +95,7 @@ def _shade_other_runs(
         frames = curve["frame_idx"].to_list()
         closest = min(range(len(frames)), key=lambda i: abs(frames[i] - decision_frame))
         ref = int(curve["handler_id"][closest])
-    label: str | None = "advantage (other handler)"
+    label: str | None = "earlier advantage"
     for start, end, handler in advantage_runs(curve, summary.shot_value):
         if (start, end) == (summary.window_start, summary.window_end):
             continue

@@ -13,7 +13,8 @@ from ventaja.cli import app
 from ventaja.config import Settings
 from ventaja.decision.cost import DECISION_SCHEMA
 from ventaja.decision.curve import SUMMARY_SCHEMA
-from ventaja.reel import build_reel, rank_tables, rankings
+from ventaja.errors import DataNotFoundError
+from ventaja.reel import build_reel, rank_tables, rankings, skipped_clips
 from ventaja.value.params import MIN_RANK_ADVANTAGE, MIN_RANK_CONFIDENCE
 
 GAME_ID = 114243
@@ -105,6 +106,8 @@ def _synthetic() -> tuple[pl.DataFrame, pl.DataFrame]:
             _decision("shot-1-2-4", cost=0.0, good_read=True, best_alt_value=0.7),  # margin 0.2
             _decision("shot-1-3-5", cost=0.0, good_read=None, best_alt_value=None),  # no pass
             _decision("shot-1-4-6", cost=0.1),
+            # late with no viable pass at the decision: only in the late ranking
+            _decision("shot-1-4-7", cost=0.0, good_read=None, best_alt_value=None),
         ],
         schema=DECISION_SCHEMA,
     )
@@ -116,6 +119,7 @@ def _synthetic() -> tuple[pl.DataFrame, pl.DataFrame]:
             _late("shot-1-2-4", lag=0.4, advantage=MIN_RANK_ADVANTAGE / 2),  # too short
             _late("shot-1-4-6", lag=1.4),
             _summary("shot-1-3-5"),
+            _late("shot-1-4-7", lag=2.0),
         ],
         schema=SUMMARY_SCHEMA,
     )
@@ -129,20 +133,26 @@ def test_rankings_exclude_low_confidence() -> None:
     for table in (worst, best, late):
         assert "shot-1-1-1" not in table["shot_id"].to_list()
         assert "shot-1-1-2" not in table["shot_id"].to_list()  # excluded
-        assert "shot-1-3-5" not in table["shot_id"].to_list()  # good_read null
+        assert "shot-1-3-5" not in table["shot_id"].to_list()  # good_read null, not late
+    for table in (worst, best):
+        assert "shot-1-4-7" not in table["shot_id"].to_list()  # good_read null
     assert worst["shot_id"].to_list()[:2] == ["shot-1-1-0", "shot-1-4-6"]
     assert worst["rank"].to_list() == list(range(1, worst.height + 1))
     assert best["shot_id"].to_list() == ["shot-1-2-3", "shot-1-2-4"]
     assert best["margin"].to_list() == pytest.approx([0.5, 0.2])
-    assert late["shot_id"].to_list() == ["shot-1-4-6", "shot-1-1-0"]  # by lag desc
+    # by lag desc; the late ranking does not need a viable pass at the decision (R14)
+    assert late["shot_id"].to_list() == ["shot-1-4-7", "shot-1-4-6", "shot-1-1-0"]
     row = worst.row(0, named=True)
     assert row["shooter"] == "Ana Uno" and row["best_alt_player"] == "Bea Dos"
     assert row["team"] == "Locales" and row["game_label"] == "Locales–Visitantes"
     assert row["period"] == 1 and row["headline_es"] == "titular shot-1-1-0"
     assert late.row(0, named=True)["window_handler"] == "Ana Uno"
-    assert late["window_peak_value"].to_list() == pytest.approx([1.4, 1.4])
+    assert late["window_peak_value"].to_list() == pytest.approx([1.4, 1.4, 1.4])
     top1 = rank_tables(decisions, summaries, PLAYERS, GAMES, n=1)
     assert [t.height for t in top1[:3]] == [1, 1, 1]
+    for bad in (0, -1):
+        with pytest.raises(ValueError, match="n must be"):
+            rank_tables(decisions, summaries, PLAYERS, GAMES, n=bad)
 
 
 def test_rank_tables_without_names() -> None:
@@ -153,15 +163,8 @@ def test_rank_tables_without_names() -> None:
     assert row["game_label"] == "1"
 
 
-def test_reel_never_renders_excluded(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def _patch_reel(monkeypatch: pytest.MonkeyPatch, render: Any) -> None:
     decisions, summaries = _synthetic()
-    rendered: list[str] = []
-
-    def fake_render(_aligner: Any, decision: Any, *_a: Any, **kw: Any) -> Path:
-        rendered.append(decision.shot_id)
-        out: Path = _a[2]
-        out.write_bytes(b"GIF89a")
-        return out
 
     def fake_decision(shot_id: str, table: pl.DataFrame, _options: Any) -> Any:
         row = table.filter(pl.col("shot_id") == shot_id).row(0, named=True)
@@ -177,12 +180,49 @@ def test_reel_never_renders_excluded(tmp_path: Path, monkeypatch: pytest.MonkeyP
     monkeypatch.setattr(reel_module, "Aligner", lambda g, s: object())
     monkeypatch.setattr(reel_module, "decision_from_tables", fake_decision)
     monkeypatch.setattr(reel_module, "curve_of_shot", lambda sid, c, s: (c, None))
-    monkeypatch.setattr(reel_module, "render_clip", fake_render)
+    monkeypatch.setattr(reel_module, "render_clip", render)
+
+
+def test_reel_never_renders_excluded(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    rendered: list[str] = []
+
+    def fake_render(_aligner: Any, decision: Any, *_a: Any, **kw: Any) -> Path:
+        rendered.append(decision.shot_id)
+        out: Path = _a[2]
+        out.write_bytes(b"GIF89a")
+        return out
+
+    _patch_reel(monkeypatch, fake_render)
     settings = Settings(data_dir=tmp_path, build_dir=tmp_path / "build")
     index = build_reel(settings, [1], n=10, out_dir=tmp_path / "reel", fps=6)
     assert "shot-1-1-2" not in rendered and "shot-1-1-1" not in rendered
-    assert sorted(set(rendered)) == ["shot-1-1-0", "shot-1-2-3", "shot-1-2-4", "shot-1-4-6"]
+    assert sorted(set(rendered)) == [
+        "shot-1-1-0",
+        "shot-1-2-3",
+        "shot-1-2-4",
+        "shot-1-4-6",
+        "shot-1-4-7",
+    ]
     assert "shot-1-1-2" not in index.read_text()
+
+
+def test_reel_survives_failing_clips(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    def failing_render(_aligner: Any, decision: Any, *_a: Any, **kw: Any) -> Path:
+        if decision.shot_id == "shot-1-1-0":
+            raise DataNotFoundError("no curve for this shot")
+        out: Path = _a[2]
+        out.write_bytes(b"GIF89a")
+        return out
+
+    _patch_reel(monkeypatch, failing_render)
+    settings = Settings(data_dir=tmp_path, build_dir=tmp_path / "build")
+    index = build_reel(settings, [1], n=10, out_dir=tmp_path / "reel", fps=6)
+    text = index.read_text()
+    assert text.count("(clip no disponible: no curve for this shot)") == 2  # worst and late
+    assert "shot-1-1-0.gif" not in text
+    assert "## Momentos perdidos" in text and "![shot-1-4-6]" in text
+    assert "2 clips no disponibles" in text
+    assert skipped_clips(index) == 2
 
 
 def test_late_clip_before_seconds() -> None:
@@ -190,7 +230,7 @@ def test_late_clip_before_seconds() -> None:
 
     assert late_before_s(decision_frame=500, window_start=490) == 3.0  # the default floor
     assert late_before_s(decision_frame=500, window_start=400) == pytest.approx(5.0)
-    assert late_before_s(decision_frame=500, window_start=0) == 8.0  # the cap
+    assert late_before_s(decision_frame=500, window_start=0) == 12.0  # the cap
 
 
 # --- fixture game --------------------------------------------------------------------------
@@ -236,3 +276,6 @@ def test_reel_cli(
     assert "Peores decisiones" in result.output and "Momentos perdidos" in result.output
     none = CliRunner().invoke(app, ["reel", "rankings"])
     assert none.exit_code == 2
+    for cmd in (["rankings"], ["build", "--out", str(tmp_path / "r")]):
+        zero = CliRunner().invoke(app, ["reel", *cmd, "--game", str(GAME_ID), "--n", "0"])
+        assert zero.exit_code == 2 and not (tmp_path / "r").exists()

@@ -3,9 +3,10 @@
 - Fecha: 2026-11-02
 - Partidos (10): Dreamland Gran Canaria–Bitci Baskonia (114086), Basquet Girona–San Pablo Burgos (114099), CB UCAM Murcia–Club Joventut Badalona (114169), Casademont Zaragoza–Leche Rio Breogan (114234), BAXI Manresa–Coviran Granada (114243), BC MoraBanc Andorra–Bilbao Basket (178442), Malaga–Valencia BC (179612), Real Madrid–Lenovo Tenerife (184439), BC Barcelona–Dreamland Gran Canaria (188630), Leche Rio Breogan–Casademont Zaragoza (191313)
 - Modelo: entrenado el 2026-11-02T11:15:42+00:00
-- Top 10 por sección. Filtro común: regla no excluida, algún pase viable y confidence ≥ 0,8 (jugadores detectados en el frame de decisión); 59 decisiones quedaron fuera por confianza.
+- Top 10 por sección. Filtro común: regla no excluida y confidence ≥ 0,8 (jugadores detectados en el frame de decisión); 66 decisiones quedaron fuera por confianza. Peores y mejores exigen además algún pase viable en el frame de decisión; los momentos perdidos no.
+- Clips: 30 generados, 0 clips no disponibles.
 
-Cada clip muestra la pista arriba (atacantes coloreados por el valor de su opción, flecha roja a la mejor alternativa en el frame de decisión) y la curva de ventaja abajo: en naranja la ventana del veredicto, en gris las ventajas de otros jugadores con balón. El reloj es el de posesión.
+Cada clip muestra la pista arriba (atacantes coloreados por el valor de su opción, flecha roja a la mejor alternativa en el frame de decisión) y la curva de ventaja abajo: en naranja la ventana del veredicto, en gris las ventajas anteriores (de otros jugadores con balón o del mismo antes de la ventana). El reloj es el de posesión.
 
 ## Peores decisiones
 
@@ -129,14 +130,14 @@ Veredicto `late` de la curva: el tirador tuvo una ventaja de al menos 0.4 s, se 
 |---:|---|---|---|---|---|---|---|
 | 1 | Leche Rio Breogan–Casademont Zaragoza | Joaquin Nazar Rodriguez Olivera (Casademont Zaragoza) | 1.º · 3,6 s | 1,17 (last_dribble) | Trae Bell-Haynes (extra_pass) 0,98 | 8,0 s (ventaja 1,2 s) | La ventaja duró 1.2 s y se esfumó 8.0 s antes del tiro |
 | 2 | BC Barcelona–Dreamland Gran Canaria | Kevin Punter (BC Barcelona) | 3.º · 6,9 s | 1,10 (gather) | Juan Ignacio Marcos (extra_pass) 1,12 | 5,2 s (ventaja 0,8 s) | La ventaja duró 0.8 s y se esfumó 5.2 s antes del tiro |
-| 3 | CB UCAM Murcia–Club Joventut Badalona | Howard Sant-Roos (CB UCAM Murcia) | 2.º · 3,7 s | 1,15 (last_dribble) | David Dejulius (other) 1,14 | 3,1 s (ventaja 1,8 s) | La ventaja duró 1.8 s y se esfumó 3.1 s antes del tiro |
-| 4 | CB UCAM Murcia–Club Joventut Badalona | Ante Tomic (Club Joventut Badalona) | 2.º · 9,5 s | 0,76 (last_dribble) | Henri Drell (extra_pass) 0,78 | 2,6 s (ventaja 1,0 s) | La ventaja duró 1.0 s y se esfumó 2.6 s antes del tiro |
-| 5 | Malaga–Valencia BC | Kameron Taylor (Valencia BC) | 1.º · 16,3 s | 1,06 (last_dribble) | Darius Thompson (extra_pass) 0,83 | 2,2 s (ventaja 1,6 s) | La ventaja duró 1.6 s y se esfumó 2.2 s antes del tiro |
-| 6 | Malaga–Valencia BC | Jean Claudio Montero (Valencia BC) | 1.º · 17,6 s | 1,29 (last_dribble) | Omari Moore (extra_pass) 0,52 | 2,1 s (ventaja 0,4 s) | La ventaja duró 0.4 s y se esfumó 2.1 s antes del tiro |
-| 7 | Dreamland Gran Canaria–Bitci Baskonia | Matteo Spagnolo (Bitci Baskonia) | 4.º · 9,6 s | 1,03 (last_dribble) | Eugene Omoruyi (open_corner) 1,08 | 2,0 s (ventaja 0,8 s) | La ventaja duró 0.8 s y se esfumó 2.0 s antes del tiro |
-| 8 | Dreamland Gran Canaria–Bitci Baskonia | Isaiah Wong (Dreamland Gran Canaria) | 3.º · 4,3 s | 0,51 (last_dribble) | Eric Vila (post) 0,66 | 1,9 s (ventaja 2,6 s) | La ventaja duró 2.6 s y se esfumó 1.9 s antes del tiro |
-| 9 | Dreamland Gran Canaria–Bitci Baskonia | Markus Howard (Bitci Baskonia) | 1.º · 13,1 s | 0,98 (gather) | Trent Forrest (open_corner) 0,88 | 1,6 s (ventaja 0,4 s) | La ventaja duró 0.4 s y se esfumó 1.6 s antes del tiro |
-| 10 | Real Madrid–Lenovo Tenerife | Andres Feliz Sarita (Real Madrid) | 2.º · 6,8 s | 1,03 (last_dribble) | David Kramer (extra_pass) 0,42 | 1,6 s (ventaja 0,4 s) | La ventaja duró 0.4 s y se esfumó 1.6 s antes del tiro |
+| 3 | Leche Rio Breogan–Casademont Zaragoza | DeWayne Russell (Leche Rio Breogan) | 4.º · 0,0 s | 0,53 (gather) | — | 4,6 s (ventaja 1,8 s) | La ventaja duró 1.8 s y se esfumó 4.6 s antes del tiro |
+| 4 | CB UCAM Murcia–Club Joventut Badalona | Howard Sant-Roos (CB UCAM Murcia) | 2.º · 3,7 s | 1,15 (last_dribble) | David Dejulius (other) 1,14 | 3,1 s (ventaja 1,8 s) | La ventaja duró 1.8 s y se esfumó 3.1 s antes del tiro |
+| 5 | CB UCAM Murcia–Club Joventut Badalona | Ante Tomic (Club Joventut Badalona) | 2.º · 9,5 s | 0,76 (last_dribble) | Henri Drell (extra_pass) 0,78 | 2,6 s (ventaja 1,0 s) | La ventaja duró 1.0 s y se esfumó 2.6 s antes del tiro |
+| 6 | BC MoraBanc Andorra–Bilbao Basket | Darrun Hilliard (Bilbao Basket) | 3.º · 0,0 s | 0,71 (gather) | — | 2,6 s (ventaja 2,0 s) | La ventaja duró 2.0 s y se esfumó 2.6 s antes del tiro |
+| 7 | BC MoraBanc Andorra–Bilbao Basket | Justin Jaworski (Bilbao Basket) | 1.º · 0,0 s | 0,66 (gather) | — | 2,4 s (ventaja 1,0 s) | La ventaja duró 1.0 s y se esfumó 2.4 s antes del tiro |
+| 8 | BAXI Manresa–Coviran Granada | Louis Olinde (BAXI Manresa) | 3.º · 0,0 s | 0,55 (last_dribble) | — | 2,3 s (ventaja 1,4 s) | La ventaja duró 1.4 s y se esfumó 2.3 s antes del tiro |
+| 9 | CB UCAM Murcia–Club Joventut Badalona | Cameron Hunt (Club Joventut Badalona) | 4.º · 0,2 s | 0,85 (gather) | — | 2,2 s (ventaja 1,4 s) | La ventaja duró 1.4 s y se esfumó 2.2 s antes del tiro |
+| 10 | Malaga–Valencia BC | Kameron Taylor (Valencia BC) | 1.º · 16,3 s | 1,06 (last_dribble) | Darius Thompson (extra_pass) 0,83 | 2,2 s (ventaja 1,6 s) | La ventaja duró 1.6 s y se esfumó 2.2 s antes del tiro |
 
 ### 1. shot-191313-1-5 — Joaquin Nazar Rodriguez Olivera
 
@@ -146,34 +147,34 @@ Veredicto `late` de la curva: el tirador tuvo una ventaja de al menos 0.4 s, se 
 
 ![shot-188630-3-81](02-late-shot-188630-3-81.gif)
 
-### 3. shot-114169-2-41 — Howard Sant-Roos
+### 3. shot-191313-4-132 — DeWayne Russell
 
-![shot-114169-2-41](03-late-shot-114169-2-41.gif)
+![shot-191313-4-132](03-late-shot-191313-4-132.gif)
 
-### 4. shot-114169-2-68 — Ante Tomic
+### 4. shot-114169-2-41 — Howard Sant-Roos
 
-![shot-114169-2-68](04-late-shot-114169-2-68.gif)
+![shot-114169-2-41](04-late-shot-114169-2-41.gif)
 
-### 5. shot-179612-1-7 — Kameron Taylor
+### 5. shot-114169-2-68 — Ante Tomic
 
-![shot-179612-1-7](05-late-shot-179612-1-7.gif)
+![shot-114169-2-68](05-late-shot-114169-2-68.gif)
 
-### 6. shot-179612-1-34 — Jean Claudio Montero
+### 6. shot-178442-3-90 — Darrun Hilliard
 
-![shot-179612-1-34](06-late-shot-179612-1-34.gif)
+![shot-178442-3-90](06-late-shot-178442-3-90.gif)
 
-### 7. shot-114086-4-114 — Matteo Spagnolo
+### 7. shot-178442-1-18 — Justin Jaworski
 
-![shot-114086-4-114](07-late-shot-114086-4-114.gif)
+![shot-178442-1-18](07-late-shot-178442-1-18.gif)
 
-### 8. shot-114086-3-82 — Isaiah Wong
+### 8. shot-114243-3-111 — Louis Olinde
 
-![shot-114086-3-82](08-late-shot-114086-3-82.gif)
+![shot-114243-3-111](08-late-shot-114243-3-111.gif)
 
-### 9. shot-114086-1-13 — Markus Howard
+### 9. shot-114169-4-111 — Cameron Hunt
 
-![shot-114086-1-13](09-late-shot-114086-1-13.gif)
+![shot-114169-4-111](09-late-shot-114169-4-111.gif)
 
-### 10. shot-184439-2-55 — Andres Feliz Sarita
+### 10. shot-179612-1-7 — Kameron Taylor
 
-![shot-184439-2-55](10-late-shot-184439-2-55.gif)
+![shot-179612-1-7](10-late-shot-179612-1-7.gif)
