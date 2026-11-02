@@ -144,6 +144,25 @@ class Aligner:
             raise DataNotFoundError(f"shot {shot_id} not found in game {self.game_id}")
         return hit.row(0, named=True)
 
+    def touches_of(self, possession_id: str) -> pl.DataFrame:
+        """Touches of one possession, sorted by ``start_frame``."""
+        return self._touches.filter(pl.col("possession_id") == possession_id).sort("start_frame")
+
+    def chance_of_shot(self, shot_id: str) -> dict[str, Any]:
+        """The ``chances`` row the shot belongs to (``shots.chance_id``).
+
+        Raises DataNotFoundError if the shot has no chance_id or the chance row is missing.
+        """
+        chance_id = self.shot(shot_id).get("chance_id")
+        if chance_id is None:
+            raise DataNotFoundError(f"game {self.game_id}: shot {shot_id} has no chance_id")
+        hit = self._chances.filter(pl.col("id") == chance_id)
+        if hit.height == 0:
+            raise DataNotFoundError(
+                f"game {self.game_id}: chance {chance_id} of shot {shot_id} not found"
+            )
+        return hit.row(0, named=True)
+
     def decision_frame(self, shot_id: str) -> DecisionFrame:
         """The decision frame of a shot (ADR-0003), from its touch and dribbles."""
         shot = self.shot(shot_id)
