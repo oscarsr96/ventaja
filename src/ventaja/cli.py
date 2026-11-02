@@ -3,7 +3,7 @@
 import sys
 from collections.abc import Callable
 from pathlib import Path
-from typing import Annotated
+from typing import Annotated, Any
 
 import duckdb
 import httpx
@@ -300,6 +300,19 @@ def _print_metrics(metrics: dict[str, float | None]) -> None:
         typer.echo(f"{name:>32} {'null' if value is None else f'{value:.4f}'}")
 
 
+def _print_zone_table(rows: list[dict[str, Any]]) -> None:
+    """Per-zone LOGO comparison: mean prediction, observed and league rates."""
+    if not rows:
+        typer.echo("zone table: not stored in this model (retrain to add it)")
+        return
+    typer.echo(f"{'zone':16} {'n':>5} {'mean_pred':>9} {'observed':>9} {'league':>7}")
+    for r in rows:
+        typer.echo(
+            f"{r['zone']:16} {r['n']:>5} {r['mean_pred']:>9.3f} "
+            f"{r['observed_rate']:>9.3f} {r['league_rate']:>7.3f}"
+        )
+
+
 @model.command("train")
 def model_train(
     game: GameOption = None,
@@ -317,6 +330,7 @@ def model_train(
         frames = [shot_rows(Aligner(g, settings), priors) for g in ids]
         df = pl.concat([f for f in frames if not f.is_empty()], how="diagonal_relaxed")
         fitted, preds = model_module.train_logo(df)
+        fitted.zone_table = model_module.zone_table(preds, priors).to_dicts()
         path = out or model_module.DEFAULT_MODEL_PATH
         fitted.save(path)
         model_module.plot_calibration(
@@ -330,6 +344,7 @@ def model_train(
         raise typer.Exit(code=1) from exc
     typer.echo(f"games {fitted.trained_on}")
     _print_metrics(fitted.metrics)
+    _print_zone_table(fitted.zone_table)
     typer.echo(f"model -> {path}")
     typer.echo(f"figure -> {figure}")
 
@@ -348,6 +363,7 @@ def model_report(
     _print_metrics(loaded.metrics)
     with pl.Config(tbl_rows=50):
         typer.echo(repr(loaded.feature_table()))
+    _print_zone_table(loaded.zone_table)
 
 
 def _decision_summary(df: pl.DataFrame) -> str:

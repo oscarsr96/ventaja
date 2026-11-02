@@ -17,6 +17,7 @@ from ventaja.value.model import (
     fit,
     plot_calibration,
     train_logo,
+    zone_table,
 )
 from ventaja.value.priors import Priors
 
@@ -33,6 +34,7 @@ def _synthetic(n: int = 400, games: int = 1, seed: int = 0) -> pl.DataFrame:
         pl.Series("game_id", np.arange(n) % games),
         pl.Series("shot_id", [f"s{i}" for i in range(n)]),
         pl.Series("shot_quality", rng.uniform(0, 100, size=n)),
+        pl.Series("zone", rng.choice(["restricted_area", "mid_range", "corner_3"], size=n)),
     )
     return df
 
@@ -89,7 +91,7 @@ def test_train_logo_on_fixture_runs(built_fixture: Settings) -> None:
     assert {"logloss", "brier", "auc", "n_shots"} <= set(m.metrics)
     assert preds.height == df.filter(pl.col("option_type") == "shot").height
     assert preds.columns == [
-        "shot_id", "game_id", "proba", "outcome", "points", "shot_quality",
+        "shot_id", "game_id", "zone", "proba", "outcome", "points", "shot_quality",
     ]  # fmt: skip
     assert m.trained_on == [114243]
     json.dumps(m.metrics)
@@ -126,6 +128,67 @@ def test_calibration_table_bins(tmp_path: Path) -> None:
     out = tmp_path / "c.png"
     plot_calibration(table, out, n_shots=200, logloss=0.6)
     assert out.stat().st_size > 0
+
+
+class _LeaguePriors:
+    def league_rate(self, zone: str) -> float:
+        return {"restricted_area": 0.6, "mid_range": 0.4, "corner_3": 0.38}[zone]
+
+
+def test_zone_table_compares_predictions_with_rates(tmp_path: Path) -> None:
+    preds = pl.DataFrame(
+        {
+            "zone": ["corner_3", "restricted_area", "restricted_area", "mid_range"],
+            "proba": [0.3, 0.5, 0.7, 0.4],
+            "outcome": [False, True, False, True],
+        }
+    )
+    table = zone_table(preds, _LeaguePriors())  # type: ignore[arg-type]
+    assert table.columns == ["zone", "n", "mean_pred", "observed_rate", "league_rate"]
+    assert table["zone"].to_list() == ["restricted_area", "mid_range", "corner_3"]  # ZONES order
+    ra = table.row(0, named=True)
+    assert ra["n"] == 2 and ra["mean_pred"] == pytest.approx(0.6)
+    assert ra["observed_rate"] == pytest.approx(0.5) and ra["league_rate"] == 0.6
+    m = fit(_synthetic())
+    m.zone_table = table.to_dicts()
+    m.save(tmp_path / "m.json")
+    assert ValueModel.load(tmp_path / "m.json").zone_table == table.to_dicts()
+
+
+def test_load_model_without_zone_table(tmp_path: Path) -> None:
+    m = fit(_synthetic())
+    m.save(tmp_path / "m.json")
+    raw = json.loads((tmp_path / "m.json").read_text())
+    del raw["zone_table"]
+    (tmp_path / "old.json").write_text(json.dumps(raw))
+    assert ValueModel.load(tmp_path / "old.json").zone_table == []
+
+
+def test_cli_model_train_and_report_print_zone_table(
+    built_fixture: Settings, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from typer.testing import CliRunner
+
+    from ventaja.cli import app
+
+    monkeypatch.setenv("VENTAJA_DATA_DIR", str(built_fixture.data_dir))
+    monkeypatch.setenv("VENTAJA_BUILD_DIR", str(built_fixture.build_dir))
+    out, fig = tmp_path / "m.json", tmp_path / "c.png"
+    runner = CliRunner()
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        trained = runner.invoke(
+            app,
+            ["model", "train", "--game", "114243", "--out", str(out), "--figure", str(fig)],
+        )
+    assert trained.exit_code == 0, trained.output
+    assert "mean_pred" in trained.output and "league" in trained.output
+    stored = json.loads(out.read_text())["zone_table"]
+    assert stored and {"zone", "n", "mean_pred", "observed_rate", "league_rate"} == set(stored[0])
+    assert sum(r["n"] for r in stored) == json.loads(out.read_text())["n_rows"]
+    report = runner.invoke(app, ["model", "report", "--model", str(out)])
+    assert report.exit_code == 0, report.output
+    assert "observed" in report.output and stored[0]["zone"] in report.output
 
 
 def test_default_missing_raises(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:

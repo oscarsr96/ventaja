@@ -21,6 +21,8 @@ from sklearn.metrics import brier_score_loss, log_loss, roc_auc_score
 from ventaja import __version__
 from ventaja.errors import DataNotFoundError
 from ventaja.value.features import OPTION_FEATURES
+from ventaja.value.priors import Priors
+from ventaja.value.zones import ZONES
 
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt  # noqa: E402
@@ -32,13 +34,14 @@ __all__ = [
     "fit",
     "plot_calibration",
     "train_logo",
+    "zone_table",
 ]
 
 # Resolved from the package location: the repo root in an editable install only.
 DEFAULT_MODEL_PATH = Path(__file__).parents[3] / "models" / "value_model.json"
 
 Array = npt.NDArray[np.float64]
-_PRED_COLUMNS = ["shot_id", "game_id", "proba", "outcome", "points", "shot_quality"]
+_PRED_COLUMNS = ["shot_id", "game_id", "zone", "proba", "outcome", "points", "shot_quality"]
 
 
 @dataclass
@@ -53,6 +56,7 @@ class ValueModel:
     fill: dict[str, float] = field(default_factory=dict)
     metrics: dict[str, float | None] = field(default_factory=dict)
     trained_on: list[int] = field(default_factory=list)
+    zone_table: list[dict[str, Any]] = field(default_factory=list)
     n_rows: int = 0
     trained_at: str = ""
     ventaja_version: str = __version__
@@ -90,6 +94,7 @@ class ValueModel:
             "fill": self.fill,
             "metrics": self.metrics,
             "trained_on": self.trained_on,
+            "zone_table": self.zone_table,
             "n_rows": self.n_rows,
             "trained_at": self.trained_at,
             "ventaja_version": self.ventaja_version,
@@ -184,6 +189,33 @@ def train_logo(df: pl.DataFrame) -> tuple[ValueModel, pl.DataFrame]:
     model = fit(shots)
     model.metrics = _metrics(preds)
     return model, preds
+
+
+def zone_table(preds: pl.DataFrame, priors: Priors) -> pl.DataFrame:
+    """Per-zone comparison (spec 5.3) of out-of-sample predictions with observed and league rates.
+
+    ``preds`` are the ``train_logo`` predictions (with the shot ``zone``); returns
+    ``zone, n, mean_pred, observed_rate, league_rate`` in ``ZONES`` order, zones without shots
+    dropped. ``league_rate`` is the season FG rate of the zone from the aggregates.
+    """
+    order = {z: i for i, z in enumerate(ZONES)}
+    table = (
+        preds.group_by("zone")
+        .agg(
+            pl.len().alias("n"),
+            pl.col("proba").mean().alias("mean_pred"),
+            pl.col("outcome").cast(pl.Float64).mean().alias("observed_rate"),
+        )
+        .with_columns(
+            pl.col("zone")
+            .map_elements(priors.league_rate, return_dtype=pl.Float64)
+            .alias("league_rate"),
+            pl.col("zone").replace_strict(order, return_dtype=pl.Int64).alias("_order"),
+        )
+        .sort("_order")
+        .drop("_order")
+    )
+    return table.with_columns(pl.col("n").cast(pl.Int64))
 
 
 def calibration_table(preds: pl.DataFrame, bins: int = 10) -> pl.DataFrame:
