@@ -16,6 +16,8 @@ from ventaja.data.load import (
     load_decision_options,
     load_frames,
     load_meta,
+    load_players_cards,
+    load_teams_cards,
 )
 from ventaja.decision.cost import decide_snapshot, decision_from_tables
 from ventaja.decision.frames import snapshot_from_frame
@@ -129,9 +131,24 @@ class Board:
         self._options: dict[int, pl.DataFrame] = {}
 
     def _load_meta(self) -> tuple[dict[int, str], dict[int, str], dict[int, str]]:
+        """Names, jerseys and team names: the player cards as base, built ``meta/`` on top.
+
+        The packaged cards cover the carded players only (no jerseys), so a clean clone still
+        names the shooters; ``meta/`` has every player of the built games.
+        """
         names: dict[int, str] = {}
         jerseys: dict[int, str] = {}
         teams: dict[int, str] = {}
+        try:
+            for c in load_players_cards(self.settings).iter_rows(named=True):
+                if c["player_id"] == 0:  # the LIGA row
+                    continue
+                names[c["player_id"]] = c["name"]
+                teams[c["team_id"]] = c["team"]
+            for t in load_teams_cards(self.settings).iter_rows(named=True):
+                teams[t["team_id"]] = t["team"]
+        except DataNotFoundError:
+            pass
         try:
             players = load_meta("players", self.settings)
             games = load_meta("games", self.settings)

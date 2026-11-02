@@ -1,4 +1,5 @@
 import json
+from pathlib import Path
 from typing import Any
 
 import polars as pl
@@ -169,3 +170,19 @@ def test_payload_is_json_serializable(board: Board) -> None:
     assert payload["options"][0]["is_shooter"] is True
     assert payload["delta_cost"] == pytest.approx(evaluated.cost - state.original.cost)
     assert payload["moves"] == [{"player_id": state.shooter_id, "x": -41.0, "y": 0.0}]
+
+
+def test_names_fall_back_to_player_cards(
+    tmp_path: Path, trained_fixture_model: ValueModel, fixture_priors: Priors
+) -> None:
+    """A clean clone has no ``meta/``: names and teams come from the packaged cards."""
+    clean = Settings(data_dir=tmp_path / "raw", build_dir=tmp_path / "build")
+    clean_board = Board(clean, model=trained_fixture_model, priors=fixture_priors)
+    shots = clean_board.shots()
+    assert shots.height > 0
+    assert shots["shooter"].null_count() == 0 and shots["team"].null_count() == 0
+    state = clean_board.load(shots["shot_id"][0])
+    payload = clean_board.payload(state, clean_board.evaluate(state))
+    shooter = next(p for p in payload["players"] if p["is_shooter"])
+    assert shooter["name"] == shots["shooter"][0]
+    assert all(p["jersey"] is None for p in payload["players"])
