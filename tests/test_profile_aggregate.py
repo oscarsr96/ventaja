@@ -177,3 +177,27 @@ def test_league_row_matches_decisions_mean(fixture_curves_built: Settings) -> No
     assert row["mean_cost"] == pytest.approx(valid["cost"].mean())
     assert row["n_shots"] == decisions.filter(pl.col("rule") != "excluded").height
     assert "player_id" not in row
+
+
+def test_bucket_means_ignore_unreadable_rows() -> None:
+    decisions = make_decisions(
+        [
+            {"shot_id": "r", "good_read": False, "cost": 0.4, "shot_clock": 3.0},
+            {
+                "shot_id": "u",
+                "good_read": None,
+                "cost": 0.0,
+                "shot_clock": 4.0,
+                "best_alt_type": None,
+            },
+        ]
+    )
+    row = _row(player_table(decisions, make_summaries([])), 10)
+    assert row["n_6-0"] == 1 and row["cost_6-0"] == pytest.approx(0.4)
+    assert row["n_clock_known"] == 2
+
+
+def test_league_row_on_empty_frame_keeps_all_keys() -> None:
+    row = league_row(make_decisions([]), make_summaries([]))
+    assert row["n_shots"] == 0 and row["mean_cost"] is None and row["n_6-0"] == 0
+    assert "ignored_alt" in row

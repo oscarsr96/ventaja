@@ -1,10 +1,13 @@
 """Pure aggregation of decisions and curve summaries per player, team and league.
 
 Shares and means are ``None`` when their denominator is empty; nothing is filled with 0.
-``mean_cost`` and the value means run over the readable decisions (``good_read`` not null);
-the shot-clock bucket means run over every decision whose clock is known, like the face-validity
-check ``cost_falls_with_clock``.
+Every cost mean (``mean_cost`` and the shot-clock bucket means) and the value means run over the
+readable decisions only (``good_read`` not null); an unreadable decision has cost 0 by
+construction. ``n_{bucket}`` counts the readable decisions of the bucket. The face-validity check
+``cost_falls_with_clock`` keeps its own all-valid-rows convention.
 """
+
+from typing import Any
 
 import polars as pl
 
@@ -58,8 +61,8 @@ def _metrics(joined: pl.DataFrame, by: list[str]) -> pl.DataFrame:
     ]
     for i, (label, _, _) in enumerate(CLOCK_BUCKETS):
         member = clock_bucket_expr(i)
-        aggs.append(pl.col("cost").filter(member).mean().alias(f"cost_{label}"))
-        aggs.append(member.sum().alias(f"n_{label}"))
+        aggs.append(pl.col("cost").filter(member & readable).mean().alias(f"cost_{label}"))
+        aggs.append((member & readable).sum().alias(f"n_{label}"))
     for alt in ALT_TYPES:
         member = (pl.col("cost") > ADVANTAGE_TOLERANCE) & (pl.col("best_alt_type") == alt)
         aggs.append(member.sum().alias(f"n_alt_{alt}"))
@@ -111,7 +114,11 @@ def player_table(decisions: pl.DataFrame, summaries: pl.DataFrame) -> pl.DataFra
 def team_table(
     decisions: pl.DataFrame, summaries: pl.DataFrame, players_meta: pl.DataFrame
 ) -> pl.DataFrame:
-    """The same metrics per team, the team being the shooter's in that game (``meta/players``)."""
+    """The same metrics per team, the team being the shooter's in that game (``meta/players``).
+
+    Decisions whose shooter has no row in ``players_meta`` for that game belong to no team and
+    are silently dropped.
+    """
     teams = players_meta.select("game_id", "team_id", pl.col("player_id").alias("shooter_id"))
     teams = teams.unique(subset=["game_id", "shooter_id"], keep="first")
     joined = _joined(decisions, summaries).join(teams, on=["game_id", "shooter_id"], how="left")
@@ -124,11 +131,14 @@ def team_table(
     return _order(table, ["team_id"])
 
 
-def league_row(decisions: pl.DataFrame, summaries: pl.DataFrame) -> dict[str, float | str | None]:
-    """The same metrics over every non-excluded decision, as a plain dict."""
+def league_row(decisions: pl.DataFrame, summaries: pl.DataFrame) -> dict[str, Any]:
+    """The same metrics over every non-excluded decision, as a plain dict.
+
+    On an empty frame every key is still present: counts are 0, the rest ``None``.
+    """
     joined = _joined(decisions, summaries).with_columns(_all=pl.lit(0))
     table = _metrics(joined, ["_all"]).drop("_all")
     if table.height == 0:
-        return {}
-    row: dict[str, float | str | None] = table.row(0, named=True)
+        return {c: 0 if c.startswith("n_") else None for c in table.columns}
+    row: dict[str, Any] = table.row(0, named=True)
     return row
