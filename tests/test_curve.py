@@ -9,7 +9,12 @@ from ventaja.cli import app
 from ventaja.config import Settings
 from ventaja.data import load as load_module
 from ventaja.data.duck import connect
-from ventaja.data.load import load_curve_summaries, load_curves, load_decisions
+from ventaja.data.load import (
+    load_curve_summaries,
+    load_curves,
+    load_decision_options,
+    load_decisions,
+)
 from ventaja.decision import curve as curve_module
 from ventaja.decision.align import Aligner
 from ventaja.decision.curve import (
@@ -27,6 +32,7 @@ from ventaja.value.priors import Priors
 
 SHOT_ID = "shot-114243-1-0"  # release 3895, decision 3885, handler 35028; tracking 3820-3895
 FLIGHT_SHOT_ID = "shot-114243-1-1"  # release 4157; ball in flight at sampled frames 4107, 4112
+# FLIGHT_SHOT_ID is a touch_start shot whose decision frame (4115) is off the 5-frame grid
 TIP_ID = "shot-114243-4-138"
 NO_TOUCH_ID = "shot-114243-1-8"
 NO_TYPE_ID = "shot-114243-1-2"
@@ -45,7 +51,8 @@ def test_curve_rows_and_release_present(
     result = possession_curve(a, SHOT_ID, fixture_priors, trained_fixture_model)
     assert result is not None and result.skipped_off_court == 0
     c = result.curve
-    assert c["frame_idx"].to_list() == list(range(3820, 3896, 5))  # every tracked step frame
+    # every tracked step frame; the decision frame 3885 is one of them, so it is not repeated
+    assert c["frame_idx"].to_list() == list(range(3820, 3896, 5))
     assert (c["frame_idx"] % 5 == 3895 % 5).all()
     assert c.filter(pl.col("frame_idx") == 3895)["handler_id"][0] == 35028
     assert c.filter(pl.col("frame_idx") == 3840)["handler_id"][0] == 28247
@@ -93,6 +100,22 @@ def test_curve_skips_ball_in_flight(
     frames = _curve(a, FLIGHT_SHOT_ID, fixture_priors, trained_fixture_model)["frame_idx"]
     assert 4157 in frames.to_list() and 4102 in frames.to_list() and 4117 in frames.to_list()
     assert 4107 not in frames.to_list() and 4112 not in frames.to_list()
+
+
+def test_curve_samples_the_decision_frame(
+    built_fixture: Settings, fixture_priors: Priors, trained_fixture_model: ValueModel
+) -> None:
+    a = Aligner(114243, built_fixture)
+    decision = a.decision_frame(FLIGHT_SHOT_ID).frame_idx
+    assert decision == 4115 and (4157 - decision) % 5 != 0
+    c = _curve(a, FLIGHT_SHOT_ID, fixture_priors, trained_fixture_model)
+    frames = c["frame_idx"].to_list()
+    assert decision in frames and frames == sorted(set(frames))  # in order, no duplicate
+    off_grid = [f for f in frames if (4157 - f) % 5]
+    assert off_grid == [decision]
+    row = c.filter(pl.col("frame_idx") == decision).row(0, named=True)
+    assert row["t_to_release"] == pytest.approx(-42 / 25)
+    assert row["handler_id"] == a.shot(FLIGHT_SHOT_ID)["shooter_id"]
 
 
 @pytest.mark.parametrize("shot_id", [TIP_ID, NO_TOUCH_ID, NO_TYPE_ID])
@@ -273,6 +296,24 @@ def test_summary_runs_split_on_handler_change() -> None:
     assert t.window_peak_value == 1.4
 
 
+def test_summary_off_grid_decision_row_counts_as_one_step() -> None:
+    # the decision frame (112) is sampled between 110 and 115: the run 105-112 is "during"
+    curve = pl.DataFrame(
+        {
+            "frame_idx": [100, 105, 110, 112, 115],
+            "handler_id": [8, 8, 8, 8, 8],
+            "best_value": [0.5, 1.2, 1.3, 1.1, 0.6],
+            "best_pass_value": [0.5, 1.2, 1.3, 1.1, 0.6],
+        }
+    )
+    s = summarize_curve(
+        curve, shot_id="s", game_id=1, decision_frame=112, shot_value=0.8, shooter_id=8
+    )
+    assert s.verdict == "during" and (s.window_start, s.window_end) == (105, 112)
+    assert s.advantage_seconds == pytest.approx(0.6)  # three rows x one step each
+    assert s.value_at_decision == 1.1
+
+
 def test_summary_null_pass_value_breaks_run() -> None:
     s = _summarize([1.0, None, 1.2, 0.5], 120)
     assert (s.window_start, s.window_end) == (110, 110)
@@ -381,18 +422,39 @@ def _make(verdict: str, advantage: float, lag: float | None, n_rows: int = 6) ->
 def test_headline_es_en() -> None:
     late, during = _make("late", 0.6, 0.36), _make("during", 0.8, 0.0)
     none, short = _make("none", 0.0, None), _make("no_window", 0.0, None, n_rows=2)
-    assert headline(late) == "La ventaja duró 0.6 s y se esfumó 0.4 s antes del tiro"
+    assert headline(late) == "La ventaja duró 0,6 s y se esfumó 0,4 s antes de la decisión"
     assert headline(during) == (
-        "Había una opción mejor en el instante del tiro (+0.33 pts, abierta 0.8 s)"
+        "Había una opción mejor en el instante del tiro (+0,33 pts, abierta 0,8 s)"
     )
     assert headline(none) == "No hubo mejor opción que el tiro en la posesión"
     assert headline(short) == "Sin curva suficiente (2 frames)"
-    assert headline(late, "en") == "The advantage lasted 0.6 s and vanished 0.4 s before the shot"
+    assert headline(late, "en") == (
+        "The advantage lasted 0.6 s and vanished 0.4 s before the decision"
+    )
     assert headline(during, "en") == (
         "A better option was open at the shot (+0.33 pts, open for 0.8 s)"
     )
     assert headline(none, "en") == "Nothing beat the shot during the possession"
     assert headline(short, "en") == "Not enough curve (2 frames)"
+
+
+def test_headline_names_the_window_handler_when_not_the_shooter() -> None:
+    late = _make("late", 1.6, 2.2).model_copy(update={"window_handler_id": 77})
+    # the shooter's own window, or no shooter given: the plain late headline
+    assert headline(late, shooter_id=77).startswith("La ventaja duró 1,6 s")
+    assert headline(late).startswith("La ventaja duró 1,6 s")
+    assert headline(late, shooter_id=5) == (
+        "La ventaja la tuvo 77 y se esfumó 2,2 s antes de la decisión"
+    )
+    assert headline(late, shooter_id=5, handler_name="Ana Uno") == (
+        "La ventaja la tuvo Ana Uno y se esfumó 2,2 s antes de la decisión"
+    )
+    assert headline(late, "en", shooter_id=5, handler_name="Ana Uno") == (
+        "Ana Uno had the advantage; it vanished 2.2 s before the decision"
+    )
+    # only late headlines are attributed
+    during = _make("during", 0.8, 0.0).model_copy(update={"window_handler_id": 77})
+    assert headline(during, shooter_id=5).startswith("Había una opción mejor")
 
 
 # --- artifacts, loaders, SQL views and CLI -------------------------------------------------
@@ -423,8 +485,29 @@ def test_build_curves_fixture(fixture_curves_built: Settings) -> None:
     assert (joined["shot_value"] - joined["shot_value_d"]).abs().max() == 0.0  # type: ignore[operator]
     row = summaries.filter(pl.col("shot_id") == SHOT_ID).row(0, named=True)
     summary = CurveSummary.model_validate({k: row[k] for k in CurveSummary.model_fields})
-    assert row["headline_es"] == headline(summary, "es")
-    assert row["headline_en"] == headline(summary, "en")
+    # every curve has its decision frame; where the shooter holds the ball there, the curve's
+    # best pass is layer 1's (same snapshot, same options)
+    options = load_decision_options(114243, settings).filter(pl.col("option_type") == "pass")
+    best_pass = options.group_by("shot_id").agg(max_pass=pl.col("adjusted_value").max())
+    at_decision = curves.join(
+        valued.select("shot_id", "decision_frame", "shooter_id"),
+        left_on=["shot_id", "frame_idx"],
+        right_on=["shot_id", "decision_frame"],
+    ).join(best_pass, on="shot_id")
+    assert at_decision.height == per_shot.filter(pl.col("len") >= 1).height
+    own = at_decision.filter(pl.col("handler_id") == pl.col("shooter_id"))
+    assert own.height > 0
+    gap = (own["best_pass_value"].fill_null(0.0) - own["max_pass"]).abs()
+    assert float(gap.max()) <= 1e-9  # type: ignore[arg-type]
+    shooter = int(valued.filter(pl.col("shot_id") == SHOT_ID)["shooter_id"][0])
+    assert row["headline_es"] == headline(summary, "es", shooter_id=shooter)
+    assert row["headline_en"] == headline(summary, "en", shooter_id=shooter)
+    # late windows of another handler name him by id (build_curves has no names)
+    other = joined.filter(
+        (pl.col("verdict") == "late") & (pl.col("window_handler_id") != pl.col("shooter_id"))
+    )
+    for r in other.iter_rows(named=True):
+        assert r["headline_es"].startswith(f"La ventaja la tuvo {r['window_handler_id']} ")
 
 
 def test_build_curves_out_dir_and_loaders(

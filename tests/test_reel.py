@@ -155,6 +155,32 @@ def test_rankings_exclude_low_confidence() -> None:
             rank_tables(decisions, summaries, PLAYERS, GAMES, n=bad)
 
 
+def test_rank_tables_name_the_handler_of_a_late_window() -> None:
+    decisions, summaries = _synthetic()
+    # shot-1-1-0's late window belongs to Bea (11), not to the shooter Ana (10)
+    summaries = summaries.with_columns(
+        window_handler_id=pl.when(pl.col("shot_id") == "shot-1-1-0")
+        .then(11)
+        .otherwise(pl.col("window_handler_id")),
+        held_to_decision=pl.when(pl.col("shot_id") == "shot-1-1-0")
+        .then(False)
+        .otherwise(pl.col("held_to_decision")),
+    )
+    worst, _, late, _ = rank_tables(decisions, summaries, PLAYERS, GAMES, n=10)
+    row = worst.filter(pl.col("shot_id") == "shot-1-1-0").row(0, named=True)
+    assert row["window_handler"] == "Bea Dos"
+    assert row["headline_es"] == "La ventaja la tuvo Bea Dos y se esfumó 0,6 s antes de la decisión"
+    assert "shot-1-1-0" not in late["shot_id"].to_list()  # not held: no lost moment
+    # the shooter's own windows keep the stored headline
+    assert worst.filter(pl.col("shot_id") == "shot-1-4-6")["headline_es"][0] == (
+        "titular shot-1-4-6"
+    )
+    unnamed, _, _, _ = rank_tables(decisions, summaries, None, None, n=10)
+    assert unnamed.filter(pl.col("shot_id") == "shot-1-1-0")["headline_es"][0] == (
+        "La ventaja la tuvo 11 y se esfumó 0,6 s antes de la decisión"
+    )
+
+
 def test_rank_tables_without_names() -> None:
     decisions, summaries = _synthetic()
     worst, _, _, _ = rank_tables(decisions, summaries, None, None, n=3)
@@ -221,6 +247,8 @@ def test_reel_survives_failing_clips(tmp_path: Path, monkeypatch: pytest.MonkeyP
     assert text.count("(clip no disponible: no curve for this shot)") == 2  # worst and late
     assert "shot-1-1-0.gif" not in text
     assert "## Momentos perdidos" in text and "![shot-1-4-6]" in text
+    assert "| Retraso | Mejor pase en la ventana | Titular |" in text
+    assert "| 1,4 s (ventaja 1,0 s) | Ana Uno 1,40 | titular shot-1-4-6 |" in text
     assert "2 clips no disponibles" in text
     assert skipped_clips(index) == 2
 

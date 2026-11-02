@@ -19,7 +19,7 @@ from ventaja.value.priors import Priors
 from ventaja.viz.animate import render_shot_gif
 from ventaja.viz.text import format_option_table
 
-__all__ = ["RULES", "allocate", "jersey_labels", "players_table", "review_kit"]
+__all__ = ["RULES", "allocate", "jersey_labels", "player_name", "players_table", "review_kit"]
 
 RULES = ("gather", "last_dribble", "touch_start")
 REVIEW_LINES = ("Frame de decisión: ok / mal → ", "Opciones valoradas: ok / mal → ", "Comentario: ")
@@ -124,6 +124,17 @@ def jersey_labels(players: pl.DataFrame | None, game_id: int) -> dict[int, str] 
         return None
     rows = players.filter(pl.col("game_id") == game_id).iter_rows(named=True)
     return {r["player_id"]: r["jersey"] for r in rows}
+
+
+def player_name(players: pl.DataFrame | None, game_id: int, player_id: int | None) -> str | None:
+    """``"First Last"`` of a player in one game, or None (no table, no id or not found)."""
+    if players is None or player_id is None:
+        return None
+    hit = players.filter((pl.col("game_id") == game_id) & (pl.col("player_id") == player_id))
+    if hit.height == 0:
+        return None
+    row = hit.row(0, named=True)
+    return f"{row['first_name']} {row['last_name']}"
 
 
 def _read(good_read: bool | None) -> str:

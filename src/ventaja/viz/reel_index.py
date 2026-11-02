@@ -67,8 +67,11 @@ def _row(kind: str, row: Mapping[str, Any]) -> str:
         f"{_num(row['shot_value'])} ({row['rule']})",
         alt,
         _metric(kind, row),
-        row["headline_es"] or "—",
     ]
+    if kind == "late":  # the value lost: the best pass inside the window, and whose it was
+        peak = row["window_peak_value"]
+        cells.append("—" if peak is None else f"{row['window_handler']} {_num(peak)}")
+    cells.append(row["headline_es"] or "—")
     return "| " + " | ".join(c.replace("|", "/") for c in cells) + " |"
 
 
@@ -83,10 +86,11 @@ def _section(
     lines = [f"## {heading}", "", _INTRO[kind], ""]
     if table.height == 0:
         return [*lines, "Ningún tiro cumple el filtro.", ""]
+    window = " Mejor pase en la ventana |" if kind == "late" else ""
     lines += [
         f"| # | Partido | Jugador | Cuarto y reloj | Tiro | Mejor alternativa | {metric} "
-        "| Titular |",
-        "|---:|---|---|---|---|---|---|---|",
+        f"|{window} Titular |",
+        "|---:|---|---|---|---|---|---|" + ("---|" if kind == "late" else "") + "---|",
         *(_row(kind, r) for r in table.iter_rows(named=True)),
         "",
     ]

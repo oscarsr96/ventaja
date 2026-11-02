@@ -597,7 +597,17 @@ def curves_plot(
         curve, summary = clip_module.curve_of_shot(
             shot_id, load_curves(game_id, settings), load_curve_summaries(game_id, settings)
         )
-        path = clip_module.curve_figure(curve, summary, decision.decision_frame, out)
+        name = kit_module.player_name(
+            kit_module.players_table(settings), game_id, summary.window_handler_id
+        )
+        path = clip_module.curve_figure(
+            curve,
+            summary,
+            decision.decision_frame,
+            out,
+            shooter_id=decision.shooter_id,
+            handler_name=name,
+        )
     except VentajaError as exc:
         typer.echo(f"error: {exc}", err=True)
         raise typer.Exit(code=1) from exc
@@ -630,7 +640,8 @@ def clip(
         curve, summary = clip_module.curve_of_shot(
             shot_id, load_curves(game_id, settings), load_curve_summaries(game_id, settings)
         )
-        labels = kit_module.jersey_labels(kit_module.players_table(settings), game_id)
+        players = kit_module.players_table(settings)
+        labels = kit_module.jersey_labels(players, game_id)
         path = clip_module.render_clip(
             Aligner(game_id, settings),
             decision,
@@ -641,6 +652,7 @@ def clip(
             after_s=after,
             fps=fps,
             labels=labels,
+            handler_name=kit_module.player_name(players, game_id, summary.window_handler_id),
         )
     except VentajaError as exc:
         typer.echo(f"error: {exc}", err=True)

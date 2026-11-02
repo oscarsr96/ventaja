@@ -20,7 +20,9 @@ from ventaja.data.load import (
 )
 from ventaja.decision.align import Aligner
 from ventaja.decision.cost import decision_from_tables
+from ventaja.decision.curve import headline
 from ventaja.errors import DataNotFoundError, VentajaError
+from ventaja.model.decision import CurveSummary
 from ventaja.value.model import ValueModel
 from ventaja.value.params import (
     CLIP_BEFORE_S,
@@ -69,6 +71,7 @@ _TAIL = [
     "held_to_decision",
     "decision_frame",
     "window_start",
+    "window_handler",
 ]
 _SUMMARY_COLUMNS = [
     "shot_id",
@@ -80,6 +83,13 @@ _SUMMARY_COLUMNS = [
     "window_start",
     "window_handler_id",
     "window_peak_value",
+    "n_rows",
+    "span_start",
+    "span_end",
+    "peak_frame",
+    "peak_value",
+    "window_end",
+    "value_at_decision",
 ]
 
 
@@ -122,6 +132,26 @@ def _name_of(df: pl.DataFrame, names: pl.DataFrame, id_col: str, out: str) -> pl
     return joined.with_columns(pl.coalesce(out, pl.col(id_col).cast(pl.String)).alias(out))
 
 
+def _named_headlines(df: pl.DataFrame) -> pl.Series:
+    """``headline_es`` with a late window of another handler named (``window_handler``).
+
+    The stored headline names that handler by id (``build_curves`` has no names); every other
+    headline is kept as stored.
+    """
+    out: list[str | None] = []
+    for row in df.iter_rows(named=True):
+        if row["verdict"] != "late" or row["window_handler_id"] == row["shooter_id"]:
+            out.append(row["headline_es"])
+            continue
+        summary = CurveSummary.model_validate({f: row[f] for f in CurveSummary.model_fields})
+        out.append(
+            headline(
+                summary, "es", shooter_id=row["shooter_id"], handler_name=row["window_handler"]
+            )
+        )
+    return pl.Series("headline_es", out, dtype=pl.String)
+
+
 def rank_tables(
     decisions: pl.DataFrame,
     summaries: pl.DataFrame,
@@ -140,7 +170,8 @@ def rank_tables(
     ``held_to_decision`` and ``advantage_seconds >= MIN_RANK_ADVANTAGE``, by
     ``release_lag_seconds``; no viable pass is needed at the decision (the advantage has
     often closed by then). Each holds the top ``n`` (ties by ``shot_id``) with a 1-based
-    ``rank``; names fall back to ids without metadata tables. Raises ValueError if ``n < 1``.
+    ``rank``; names fall back to ids without metadata tables, and ``headline_es`` names the
+    handler of a late window that is not the shooter's. Raises ValueError if ``n < 1``.
     """
     if n < 1:
         raise ValueError(f"n must be at least 1, got {n}")
@@ -160,6 +191,7 @@ def rank_tables(
     df = _name_of(df, names, "shooter_id", "shooter")
     df = _name_of(df, names, "best_alt_player_id", "best_alt_player")
     df = _name_of(df, names, "window_handler_id", "window_handler")
+    df = df.with_columns(_named_headlines(df))
     shooter_team = names.select("game_id", shooter_id="player_id", team_id="team_id")
     df = (
         df.join(shooter_team, on=["game_id", "shooter_id"], how="left")
@@ -186,7 +218,7 @@ def rank_tables(
             & (pl.col("advantage_seconds") >= MIN_RANK_ADVANTAGE)
         ),
         "release_lag_seconds",
-        ["cost", "window_handler", "window_peak_value"],
+        ["cost", "window_peak_value"],
     )
     return worst, best, late, low
 
@@ -228,7 +260,15 @@ def _render_row(
             decision_frame=row["decision_frame"], window_start=row["window_start"]
         )
     render_clip(
-        t["aligner"], decision, curve, summary, out, before_s=before_s, fps=fps, labels=labels
+        t["aligner"],
+        decision,
+        curve,
+        summary,
+        out,
+        before_s=before_s,
+        fps=fps,
+        labels=labels,
+        handler_name=row["window_handler"],
     )
 
 

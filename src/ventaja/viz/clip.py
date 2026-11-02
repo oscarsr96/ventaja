@@ -191,13 +191,15 @@ def render_clip(
     after_s: float = CLIP_AFTER_S,
     fps: int = 12,
     labels: Mapping[int, str] | None = None,
+    handler_name: str | None = None,
 ) -> Path:
     """Animate a shot's possession with its advantage curve underneath; returns ``out``.
 
     The court panel is ``render_shot_gif``'s (same frames, colours and one-second hold at the
     decision frame); the curve panel is ``plot_curve``, drawn once, with a marker that follows
-    the clip's frame. The title is the Spanish headline plus the decision's
-    ``shot_id · rule · clock · cost`` line. Raises NoTrackingError if no frame is tracked.
+    the clip's frame. The title is the Spanish headline (a late window of another handler
+    names him: ``handler_name``, else his id) plus the decision's ``shot_id · rule · clock ·
+    cost`` line. Raises NoTrackingError if no frame is tracked.
     """
     import matplotlib
 
@@ -217,7 +219,8 @@ def render_clip(
         first, last = (frames[0].frame_idx - release) / FPS, (frames[-1].frame_idx - release) / FPS
         ax_curve.set_xlim(min(lo, first - 0.1), max(hi, last + 0.2))
     (marker,) = ax_curve.plot([], [], "o", color="crimson", ms=7, zorder=10)
-    fig.suptitle(f"{headline(summary, 'es')}\n{decision_title(decision)}", fontsize=9)
+    title = headline(summary, "es", shooter_id=decision.shooter_id, handler_name=handler_name)
+    fig.suptitle(f"{title}\n{decision_title(decision)}", fontsize=9)
     fig.subplots_adjust(left=0.1, right=0.97, top=0.93, bottom=0.06, hspace=0.12)
 
     def draw(snap: Snapshot, at_decision: bool) -> list[Any]:
@@ -235,8 +238,14 @@ def curve_figure(
     out: Path,
     *,
     title: str | None = None,
+    shooter_id: int | None = None,
+    handler_name: str | None = None,
 ) -> Path:
-    """Save only the curve panel as an image (150 dpi); the title defaults to the headline."""
+    """Save only the curve panel as an image (150 dpi); the title defaults to the headline.
+
+    ``shooter_id`` and ``handler_name`` are passed to ``headline``: a late window of another
+    handler is attributed to him.
+    """
     import matplotlib
 
     matplotlib.use("Agg")
@@ -245,7 +254,9 @@ def curve_figure(
     fig, ax = plt.subplots(figsize=FIGURE_FIGSIZE)
     try:
         plot_curve(ax, curve, summary, decision_frame=decision_frame)
-        ax.set_title(title if title is not None else headline(summary, "es"), fontsize=9)
+        if title is None:
+            title = headline(summary, "es", shooter_id=shooter_id, handler_name=handler_name)
+        ax.set_title(title, fontsize=9)
         fig.tight_layout()
         out.parent.mkdir(parents=True, exist_ok=True)
         fig.savefig(out, dpi=FIGURE_DPI)
