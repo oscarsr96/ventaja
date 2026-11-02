@@ -44,3 +44,7 @@ Se deja `ok` o `mal` (borrando el otro) y, tras la flecha, el motivo. Al termina
 
 - Si una discrepancia es **sistemática** (se repite en varias posesiones con la misma causa), se corrige el método: constantes en `value/params.py` (por ejemplo `LANE_END_MARGIN`, `LANE_BLOCKED_FACTOR`, `PROJECTION_CAP`, `GATHER_FRAMES`) o reglas en `decision/frame.py`, siempre mediante un **ADR nuevo**, y se regeneran el modelo y las decisiones. Esto ocurre **antes de abrir la capa 2**.
 - Si las discrepancias son aisladas, se anotan como límites conocidos en la documentación de la capa 1 y no se cambia nada.
+
+## Resultado de la sesión del 2 de noviembre de 2026
+
+Se revisaron las 20 posesiones de la muestra con Óscar como entrenador. Frame de decisión: 19 `ok` y 1 `mal`. Opciones valoradas: 17 `ok` y 3 `mal`; los tres `mal` eran pases penalizados por `lane_blocked` con un defensor en el medio del carril. Las respuestas están en [`2026-11-sample/respuestas-2026-11-02.json`](2026-11-sample/respuestas-2026-11-02.json) y copiadas en `2026-11-sample/review.md`. El cambio de regla (carril de pase) se decide en [ADR-0005](../decisions/0005-carril-de-pase-tras-la-sesion.md).
