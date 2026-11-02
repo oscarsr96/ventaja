@@ -165,7 +165,7 @@ def test_curve_summaries_cover_every_valued_shot(real_settings: Settings) -> Non
     )
     from ventaja.model.decision import Verdict
 
-    total, compared, other_handler = 0, 0, 0
+    total, compared, other_handler, total_held = 0, 0, 0, 0
     for game_id in GAME_IDS:
         valued = load_decisions(game_id, real_settings).filter(pl.col("rule") != "excluded")
         summaries = load_curve_summaries(game_id, real_settings)
@@ -173,6 +173,12 @@ def test_curve_summaries_cover_every_valued_shot(real_settings: Settings) -> Non
         assert (summaries["advantage_seconds"] >= 0).all(), game_id
         assert set(summaries["verdict"]) <= set(get_args(Verdict)), game_id
         total += summaries.height
+        held = summaries.filter(pl.col("held_to_decision")).join(
+            valued.select("shot_id", "shooter_id"), on="shot_id"
+        )
+        assert (held["verdict"] == "late").all(), game_id
+        assert (held["window_handler_id"] == held["shooter_id"]).all(), game_id
+        total_held += held.height
         best_pass = (
             load_decision_options(game_id, real_settings)
             .filter(pl.col("option_type") == "pass")
@@ -196,6 +202,7 @@ def test_curve_summaries_cover_every_valued_shot(real_settings: Settings) -> Non
         gap = (at_decision["best_pass_value"].fill_null(0.0) - at_decision["max_pass"]).abs()
         assert gap.len() == 0 or float(gap.max()) <= 1e-6, game_id  # type: ignore[arg-type]
     assert total == 1351
+    assert total_held == 213  # ADR-0006, amendment held_to_decision
     assert compared >= 600, f"only {compared} gather rows at the decision frame were compared"
     assert other_handler <= 1, (
         f"{other_handler} decision rows have a handler other than the shooter"
