@@ -387,6 +387,10 @@ def decisions_build(
     model_path: Annotated[
         Path | None, typer.Option("--model", help="Model JSON path (default: versioned model).")
     ] = None,
+    out: Annotated[
+        Path | None,
+        typer.Option("--out", help="Output directory (default: the build's decisions/)."),
+    ] = None,
 ) -> None:
     """Value every shot against its pass options and write the decisions tables."""
     if not game and not all_games:
@@ -400,7 +404,7 @@ def decisions_build(
             else model_module.ValueModel.default()
         )
         for game_id in GAME_IDS if all_games else game or []:
-            path = build_decisions(game_id, settings, model=loaded)
+            path = build_decisions(game_id, settings, model=loaded, out_dir=out)
             typer.echo(f"game {game_id}: {_decision_summary(pl.read_parquet(path))}")
             typer.echo(f"  -> {path}")
     except VentajaError as exc:

@@ -206,11 +206,18 @@ def _option_rows(d: Decision) -> list[dict[str, Any]]:
     ]
 
 
-def build_decisions(game_id: int, settings: Settings, *, model: ValueModel | None = None) -> Path:
+def build_decisions(
+    game_id: int,
+    settings: Settings,
+    *,
+    model: ValueModel | None = None,
+    out_dir: Path | None = None,
+) -> Path:
     """Write every shot decision of a game; returns the decisions parquet path.
 
-    Two files: ``decisions_parquet`` (one row per shot, excluded shots with their ``reason``
-    and null values) and ``decisions_options_parquet`` (one row per option of valid shots).
+    Two files in ``out_dir`` (default: the build's ``decisions/``): ``{game_id}.parquet``
+    (one row per shot, excluded shots with their ``reason`` and null values) and
+    ``{game_id}.options.parquet`` (one row per option of valid shots).
     """
     model = model or ValueModel.default()
     aligner = Aligner(game_id, settings)
@@ -231,10 +238,9 @@ def build_decisions(game_id: int, settings: Settings, *, model: ValueModel | Non
             continue
         rows.append({**d.model_dump(exclude={"options"}), "reason": None})
         options.extend(_option_rows(d))
-    path = settings.decisions_parquet(game_id)
-    path.parent.mkdir(parents=True, exist_ok=True)
+    out = out_dir if out_dir is not None else settings.decisions_parquet(game_id).parent
+    out.mkdir(parents=True, exist_ok=True)
+    path = out / f"{game_id}.parquet"
     pl.DataFrame(rows, schema=DECISION_SCHEMA).write_parquet(path)
-    pl.DataFrame(options, schema=OPTION_SCHEMA).write_parquet(
-        settings.decisions_options_parquet(game_id)
-    )
+    pl.DataFrame(options, schema=OPTION_SCHEMA).write_parquet(out / f"{game_id}.options.parquet")
     return path

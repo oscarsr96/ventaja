@@ -24,10 +24,10 @@ def _create_view(con: duckdb.DuckDBPyConnection, name: str, files: list[str], un
 def connect(settings: Settings, *, read_only: bool = True) -> duckdb.DuckDBPyConnection:
     """Open an in-memory DuckDB with a view per built table (events, tracking, meta, aggregates).
 
-    Tables without any built parquet get no view, except ``decisions`` and
-    ``decision_options``, which fall back to the packaged ``artifacts/decisions/``. Views are
-    the only objects created; ``read_only`` is kept for API stability (the connection is
-    in-memory and nothing is persisted either way).
+    Tables without any built parquet get no view; ``decisions`` and ``decision_options``
+    read ``decisions_dir`` (the build's decisions, else the packaged
+    ``artifacts/decisions/``). Views are the only objects created; ``read_only`` is kept for
+    API stability (the connection is in-memory and nothing is persisted either way).
     """
     del read_only
     con = duckdb.connect()

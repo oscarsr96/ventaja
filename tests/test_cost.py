@@ -227,6 +227,67 @@ def test_load_decisions_fallback_to_artifacts(
     assert load_decisions(1, settings)["shot_id"].to_list() == ["built"]
 
 
+def test_built_decisions_never_mix_with_packaged(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    settings = Settings(data_dir=tmp_path, build_dir=tmp_path / "build")
+    artifacts = tmp_path / "artifacts" / "decisions"
+    artifacts.mkdir(parents=True)
+    monkeypatch.setattr(load_module, "ARTIFACTS_DIR", artifacts.parent)
+    for g in (1, 2):
+        pl.DataFrame({"shot_id": [f"packaged-{g}"]}).write_parquet(artifacts / f"{g}.parquet")
+        pl.DataFrame({"shot_id": [f"opt-{g}"]}).write_parquet(artifacts / f"{g}.options.parquet")
+    assert load_module.decisions_dir(settings) == artifacts
+    assert load_decisions(2, settings)["shot_id"].to_list() == ["packaged-2"]
+    # Building one game switches every reader to the build dir, with no per-file fallback.
+    built = settings.build_dir / "decisions"
+    built.mkdir(parents=True)
+    pl.DataFrame({"shot_id": ["built-1"]}).write_parquet(built / "1.parquet")
+    pl.DataFrame({"shot_id": ["opt-1"]}).write_parquet(built / "1.options.parquet")
+    assert load_module.decisions_dir(settings) == built
+    assert load_decisions(1, settings)["shot_id"].to_list() == ["built-1"]
+    with pytest.raises(DataNotFoundError, match="ventaja decisions build --game 2"):
+        load_decisions(2, settings)
+    with pytest.raises(DataNotFoundError, match="ventaja decisions build --game 2"):
+        load_decision_options(2, settings)
+    decisions, options = load_module.decision_files(settings)
+    assert decisions == [built / "1.parquet"] and options == [built / "1.options.parquet"]
+    assert connect(settings).sql("select shot_id from decisions").fetchall() == [("built-1",)]
+
+
+def test_options_file_alone_does_not_select_build_dir(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    settings = Settings(data_dir=tmp_path, build_dir=tmp_path / "build")
+    monkeypatch.setattr(load_module, "ARTIFACTS_DIR", tmp_path / "artifacts")
+    built = settings.build_dir / "decisions"
+    built.mkdir(parents=True)
+    pl.DataFrame({"shot_id": ["o"]}).write_parquet(built / "1.options.parquet")
+    assert load_module.decisions_dir(settings) == tmp_path / "artifacts" / "decisions"
+
+
+def test_build_decisions_out_dir(
+    built_fixture: Settings,
+    trained_fixture_model: ValueModel,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    out = tmp_path / "packaged"
+    path = build_decisions(114243, built_fixture, model=trained_fixture_model, out_dir=out)
+    assert path == out / "114243.parquet" and (out / "114243.options.parquet").exists()
+    _env(monkeypatch, built_fixture)
+    model_path = tmp_path / "m.json"
+    trained_fixture_model.save(model_path)
+    cli_out = tmp_path / "cli"
+    result = CliRunner().invoke(
+        app,
+        ["decisions", "build", "--game", "114243", "--model", str(model_path)]
+        + ["--out", str(cli_out)],
+    )
+    assert result.exit_code == 0, result.output
+    assert sorted(p.name for p in cli_out.iterdir()) == ["114243.options.parquet", "114243.parquet"]
+
+
 def test_duck_decision_views_and_fallback(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     artifacts = tmp_path / "artifacts" / "decisions"
     artifacts.mkdir(parents=True)

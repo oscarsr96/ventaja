@@ -56,10 +56,13 @@ def allocate(counts: dict[str, int], n: int) -> dict[str, int]:
 
 
 def _candidates(aligner: Aligner, settings: Settings) -> list[_Candidate]:
-    """Non-excluded shots of a game: from its built decisions table, else from decision frames."""
+    """Non-excluded shots of a game: from its decisions table, else from decision frames."""
     g = aligner.game_id
-    if settings.decisions_parquet(g).exists():
+    try:
         df = load_decisions(g, settings).filter(pl.col("rule") != "excluded")
+    except DataNotFoundError:
+        pass
+    else:
         return [
             _Candidate(g, r["shot_id"], r["rule"], r["release_frame"])
             for r in df.iter_rows(named=True)
