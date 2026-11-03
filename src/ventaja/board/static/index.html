@@ -17,17 +17,25 @@
   select { max-width:100%; }
   button { cursor:pointer; } button:hover { border-color:var(--accent); }
   #shotSel { flex:1 1 320px; min-width:0; }
-  #head { display:grid; grid-template-columns:repeat(auto-fit,minmax(220px,1fr)); gap:6px 18px; }
+  #layout { display:flex; flex-direction:column; gap:10px; }
+  #side { display:flex; flex-direction:column; gap:10px; min-width:0; }
+  @media (min-width:1100px) {
+    #layout { display:grid; grid-template-columns:minmax(0,1fr) 490px; align-items:start; }
+    main { max-width:1500px; }
+    #tableWrap { font-size:11.5px; padding:6px; } th, td { padding:3px 4px; }
+  }
+  #head { display:grid; grid-template-columns:repeat(auto-fit,minmax(190px,1fr)); gap:6px 14px; }
   .k { color:var(--muted); font-size:12px; display:block; }
-  .v { font-size:16px; font-weight:600; }
+  .v { font-size:15px; font-weight:600; }
   .good { color:var(--good); } .bad { color:var(--bad); }
   #moveNote { grid-column:1/-1; background:#fff4d6; border:1px solid #e8c55b; border-radius:6px; padding:4px 8px; font-weight:600; }
   #headline { margin:0; font-size:15px; }
   #courtWrap { padding:6px; }
-  #court { width:100%; height:auto; display:block; touch-action:none; user-select:none; background:#f2d9a8; border-radius:6px; }
+  #court { width:100%; aspect-ratio:61/57; max-height:calc(100vh - 190px); display:block; margin:0 auto; touch-action:none; user-select:none; }
   .player { cursor:grab; } .player.drag { cursor:grabbing; }
   .player text { pointer-events:none; text-anchor:middle; font-weight:700; }
   .lbl { font-size:1.3px; font-weight:600; fill:#1b1f24; paint-order:stroke; stroke:#f2d9a8; stroke-width:.35px; }
+  .fb { font-style:italic; opacity:.7; }
   #legend { display:flex; align-items:center; gap:8px; font-size:12px; color:var(--muted); margin-top:4px; flex-wrap:wrap; }
   #legend i { display:inline-block; width:140px; height:10px; border-radius:5px; border:1px solid var(--line); }
   #status { min-height:1.4em; color:var(--bad); font-size:13px; }
@@ -54,15 +62,19 @@
       <button id="undoBtn" type="button">Undo last</button>
     </div>
   </div>
-  <div class="card" id="head"></div>
-  <p id="headline"></p>
+  <div id="layout">
   <div class="card" id="courtWrap">
-    <svg id="court" xmlns="http://www.w3.org/2000/svg" viewBox="-47 -25.5 48 51" role="img" aria-label="Half court with the ten players"></svg>
+    <svg id="court" xmlns="http://www.w3.org/2000/svg" viewBox="-49 -28.5 61 57" role="img" aria-label="Half court with the ten players"></svg>
     <div id="legend"><span>adjusted value</span><i id="legendBar"></i><span id="legendTxt">0.6 &rarr; 1.5 (offense); defense grey; ball orange; thick black ring = shooter; dashed = moved</span></div>
     <div class="hint">Drag any player; the five option values recompute as you move.</div>
   </div>
-  <div id="status" class="info" role="status"></div>
-  <div class="card" id="tableWrap"><table id="optTable"></table></div>
+  <div id="side">
+    <div class="card" id="head"></div>
+    <p id="headline"></p>
+    <div id="status" class="info" role="status"></div>
+    <div class="card" id="tableWrap"><table id="optTable"></table></div>
+  </div>
+  </div>
 </main>
 <script>
 'use strict';
@@ -80,6 +92,8 @@ let shotId = null;                   // selected shot
 let payload = null;                  // latest applied payload
 const moves = new Map();             // player_id -> {x, y}; insertion order = move recency
 let dragId = null;                   // player being dragged right now
+let grab = { dx: 0, dy: 0 };         // pointer-to-centre offset at pointerdown
+let lastPost = 0;                    // time of the last evaluate, for the leading-edge throttle
 let seq = 0;                         // request sequence counter; only the newest response is applied
 let timer = null;                    // debounce timer
 const nodes = new Map();             // player_id -> {g, circle, num, lbl}
@@ -127,6 +141,9 @@ async function parse(resp) {
 
 /* ---------- court (static lines, y flipped so +y is up) ---------- */
 function drawCourt() {
+  el('rect', { x: -49, y: -28.5, width: 61, height: 57, fill: '#f2d9a8', rx: 1 }, svg);
+  el('rect', { x: 0, y: -28.5, width: 12, height: 57, fill: '#dcc08b' }, svg);   // backcourt strip
+  el('text', { x: 6, y: -26.5, 'text-anchor': 'middle', 'font-size': 1.4, fill: '#8a7448' }, svg, 'backcourt (not modelled)');
   const c = court, g = el('g', { fill: 'none', stroke: '#222', 'stroke-width': 0.18 }, svg);
   const base = -c.half_length, side = c.width / 2, hx = c.hoop[0], hy = c.hoop[1];
   const line = (x1, y1, x2, y2) => el('line', { x1: x1, y1: -y1, x2: x2, y2: -y2 }, g);
@@ -180,8 +197,12 @@ function currentPos(pl) {
 }
 
 function render() {
-  const p = payload;
-  if (!p) return;
+  if (!payload) return;
+  const optBy = drawBoard(payload);
+  renderHeader(payload);
+  renderTable(payload, optBy);
+}
+function drawBoard(p) {
   const optBy = new Map(p.options.map((o) => [o.player_id, o]));
   const pos = new Map();
   for (const pl of p.players) {
@@ -199,6 +220,8 @@ function render() {
     n.circle.setAttribute('stroke-dasharray', pl.moved || moves.has(pl.player_id) ? '0.5 0.35' : '');
     n.num.setAttribute('fill', txt);
     n.num.textContent = jersey(pl);
+    n.num.classList.toggle('fb', pl.jersey === null || pl.jersey === undefined);
+    n.lbl.setAttribute('y', q.y < -22 ? -(R + 0.6) : R + 1.5);   // keep the label off the sideline
     n.lbl.textContent = pl.side === 'offense' && o ? f(o.adjusted_value, 2) : '';
     n.g.classList.toggle('drag', dragId === pl.player_id);
   }
@@ -212,8 +235,7 @@ function render() {
   } else arrow.setAttribute('visibility', 'hidden');
   if (s) { ballEl.setAttribute('cx', s.x + 1.2); ballEl.setAttribute('cy', -(s.y - 1.2)); }
   svg.appendChild(ballEl);
-  renderHeader(p);
-  renderTable(p, optBy);
+  return optBy;
 }
 
 /* ---------- header and table ---------- */
@@ -221,7 +243,8 @@ function field(label, valueNode) {
   const d = h('div'); d.appendChild(h('span', label, 'k')); valueNode.classList.add('v'); d.appendChild(valueNode); return d;
 }
 function clock(p) { return p.shot_clock === null || p.shot_clock === undefined ? 'clock unknown' : f(p.shot_clock, 1) + ' s on shot clock'; }
-function playerLabel(pl) { return '#' + jersey(pl) + ' ' + (pl.name || '-'); }
+function hasJersey(pl) { return pl.jersey !== null && pl.jersey !== undefined; }
+function playerLabel(pl) { return (hasJersey(pl) ? '#' + jersey(pl) : '(id ..' + jersey(pl) + ')') + ' ' + (pl.name || '-'); }
 function renderHeader(p) {
   const hd = $('head'); hd.textContent = '';
   const sh = p.players.find((x) => x.player_id === p.shooter_id);
@@ -232,16 +255,17 @@ function renderHeader(p) {
   const alt = p.best_alt_value === null || p.best_alt_value === undefined;
   hd.appendChild(field('Shot value → best alternative', h('div', f(p.shot_value, 3) + ' → ' + (alt ? 'no viable pass' : f(p.best_alt_value, 3)))));
   const cost = h('div'); cost.appendChild(document.createTextNode(f(p.original_cost, 3) + ' → ' + f(p.cost, 3) + ' '));
-  const dl = h('span', '(' + (p.delta_cost > 0 ? '+' : '') + f(p.delta_cost, 3) + ')', p.delta_cost < 0 ? 'good' : p.delta_cost > 0 ? 'bad' : '');
+  const dc = Math.abs(p.delta_cost) < 5e-4 ? 0 : p.delta_cost;   // float noise is not a change
+  const dl = h('span', '(' + (dc > 0 ? '+' : '') + f(dc, 3) + ')', dc < 0 ? 'good' : dc > 0 ? 'bad' : '');
   cost.appendChild(dl);
   hd.appendChild(field('Cost: original → current (delta)', cost));
   if (sh && (sh.moved || moves.has(p.shooter_id))) hd.appendChild(h('div', 'The shot is valued from the new position.', '')).id = 'moveNote';
 }
 function renderTable(p, optBy) {
   const t = $('optTable'); t.textContent = '';
-  const heads = ['', 'jersey', 'player_id', 'type', 'zone', 'P', 'value', 'viab', 'adj', 'alternative', 'name'];
+  const heads = ['', 'jersey', 'type', 'zone', 'P', 'value', 'viab', 'adj', 'alternative', 'name'];
   const tr = h('tr');
-  heads.forEach((x, i) => tr.appendChild(h('th', x, i >= 3 && i !== 5 && i !== 6 && i !== 7 && i !== 8 ? 'l' : '')));
+  heads.forEach((x, i) => tr.appendChild(h('th', x, i === 0 || i === 2 || i === 3 || i >= 8 ? 'l' : '')));
   t.appendChild(tr);
   const byId = new Map(p.players.map((x) => [x.player_id, x]));
   for (const o of p.options) {
@@ -249,11 +273,11 @@ function renderTable(p, optBy) {
     const mark = o.player_id === p.shooter_id ? '*' : (o.player_id === p.best_alt_player_id ? '>' : ' ');
     const r = h('tr', undefined, mark === '*' ? 'shooter' : mark === '>' ? 'alt' : '');
     const sw = h('td', undefined, 'sw'), b = h('b', jersey(pl)), v = viridis(o.adjusted_value);
-    b.style.background = v.css; b.style.color = v.t > 0.6 ? '#111' : '#fff'; sw.appendChild(b);
-    const cells = [mark, null, o.player_id, o.option_type, o.zone, f(o.proba, 2), f(o.value, 3), f(o.viability, 2), f(o.adjusted_value, 3), o.alternative_type || '-', pl.name || '-'];
+    b.style.background = v.css; b.classList.toggle('fb', !hasJersey(pl)); b.style.color = v.t > 0.6 ? '#111' : '#fff'; sw.appendChild(b);
+    const cells = [mark, null, o.option_type, o.zone, f(o.proba, 2), f(o.value, 3), f(o.viability, 2), f(o.adjusted_value, 3), o.alternative_type || '-', pl.name || '-'];
     cells.forEach((c, i) => {
       if (c === null) { r.appendChild(sw); return; }
-      r.appendChild(h('td', String(c), i === 0 || i === 3 || i === 4 || i >= 9 ? 'l' : ''));
+      r.appendChild(h('td', String(c), i === 0 || i === 2 || i === 3 || i >= 8 ? 'l' : ''));
     });
     t.appendChild(r);
   }
@@ -267,22 +291,28 @@ function renderHeadline() {
 function toFeet(ev) {
   const pt = svg.createSVGPoint(); pt.x = ev.clientX; pt.y = ev.clientY;
   const q = pt.matrixTransform(svg.getScreenCTM().inverse());
+  return { x: q.x, y: -q.y };
+}
+function clampToCourt(q) {   // the server clamps too: a backcourt player snaps to the half line
   const hl = court.half_length, hw = court.width / 2;
-  return { x: Math.min(0, Math.max(-hl, q.x)), y: Math.min(hw, Math.max(-hw, -q.y)) };
+  return { x: Math.min(0, Math.max(-hl, q.x)), y: Math.min(hw, Math.max(-hw, q.y)) };
 }
 function startDrag(ev, id, g) {
   ev.preventDefault();
+  const pl = payload.players.find((x) => x.player_id === id), at = moves.get(id) || pl, m = toFeet(ev);
+  grab = { dx: at.x - m.x, dy: at.y - m.y };   // keep the point of the circle that was grabbed
   dragId = id;
   g.setPointerCapture(ev.pointerId);
   g.classList.add('drag');
 }
 function onDrag(ev, id) {
   if (dragId !== id) return;
-  const q = toFeet(ev);
+  const m = toFeet(ev), q = clampToCourt({ x: m.x + grab.dx, y: m.y + grab.dy });
   moves.delete(id); moves.set(id, q);          // re-insert: this player is now the most recent
-  place(id, q.x, q.y);
+  drawBoard(payload);                          // circle, label, arrow and ball follow at once
   clearTimeout(timer);
-  timer = setTimeout(evaluate, DEBOUNCE_MS);
+  const wait = lastPost + DEBOUNCE_MS - Date.now();   // first move posts now, then at most every 150 ms
+  if (wait <= 0) evaluate(); else timer = setTimeout(evaluate, wait);
 }
 function endDrag(ev, id, g) {
   if (dragId !== id) return;
@@ -296,6 +326,7 @@ async function evaluate() {
   if (!shotId) return;
   if (moves.size === 0) { await loadShot(shotId); return; }
   const mine = ++seq;
+  lastPost = Date.now();
   const body = { moves: Array.from(moves, ([player_id, q]) => ({ player_id: player_id, x: q.x, y: q.y })) };
   try {
     const p = await request('/api/shot/' + encodeURIComponent(shotId) + '/evaluate', {
