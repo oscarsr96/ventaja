@@ -8,7 +8,7 @@ El problema es que las tablas de opciones (`artifacts/decisions/`) guardan el va
 
 ## Decisión
 
-**Un artefacto de frames.** `ventaja frames build [--game ID ... | --all] [--out PATH]` escribe `artifacts/frames/{game}.parquet`: el frame de decisión de cada tiro valorado, con los 10 jugadores y el balón (posición, velocidad y contexto de posesión: reloj, equipo en ataque, lado). Son 1 351 tiros × 11 filas = 14 861 filas, 644 KB para los diez partidos. `snapshot_from_frame` reconstruye el `Snapshot` sin tracking y falla si el frame no tiene 5 + 5 jugadores y un balón. Se regenera después de las decisiones y necesita el tracking.
+**Un artefacto de frames.** `ventaja frames build [--game ID ... | --all] [--out PATH]` escribe `artifacts/frames/{game}.parquet`: el frame de decisión de cada tiro valorado, con los 10 jugadores y el balón (posición, velocidad y contexto de posesión: reloj, equipo en ataque, lado). Son 1 351 tiros × 11 filas = 14 861 filas, ≈ 640 KB para los diez partidos. `snapshot_from_frame` reconstruye el `Snapshot` sin tracking y falla si el frame no tiene 5 + 5 jugadores y un balón. Se regenera después de las decisiones y necesita el tracking.
 
 **Plantilla.** `artifacts/frames/roster.parquet` (205 jugadores: id, nombre, dorsal, equipo, 5 KB) sale del mismo `frames build` a partir de `meta/`. Así la pizarra muestra nombres y dorsales reales desde un clon limpio (ruling R5). El orden de nombres es plantilla, luego `meta/` y luego fichas de jugador, y cada fuente solo rellena lo que falta.
 
