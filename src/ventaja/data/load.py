@@ -256,6 +256,14 @@ def load_frames(game_id: int, settings: Settings) -> pl.DataFrame:
     return _artifact_table(game_id, "frames", f"{game_id}.parquet", settings)
 
 
+def load_roster(settings: Settings) -> pl.DataFrame:
+    """Names, jerseys and teams of the players of the decision frames (``roster.parquet``)."""
+    path = artifact_dir("frames", settings) / "roster.parquet"
+    if not path.exists():
+        raise DataNotFoundError(f"{path} not found; run `ventaja frames build --all` first")
+    return pl.read_parquet(path)
+
+
 def _artifact_table(
     game_id: int | None, kind: ArtifactKind, name: str, settings: Settings
 ) -> pl.DataFrame:

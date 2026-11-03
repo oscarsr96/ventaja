@@ -8,9 +8,9 @@ from ventaja.cli import app
 from ventaja.config import Settings
 from ventaja.data import load as load_module
 from ventaja.data.duck import connect
-from ventaja.data.load import load_decisions, load_frames
+from ventaja.data.load import load_decisions, load_frames, load_roster
 from ventaja.decision.align import Aligner
-from ventaja.decision.frames import FRAME_SCHEMA, build_frames, snapshot_from_frame
+from ventaja.decision.frames import FRAME_SCHEMA, ROSTER_SCHEMA, build_frames, snapshot_from_frame
 from ventaja.errors import DataNotFoundError, VentajaError
 
 GAME_ID = 114243
@@ -95,7 +95,7 @@ def test_frames_cli_build(
     result = CliRunner().invoke(app, ["frames", "build", "--game", "114243", "--out", str(out)])
     assert result.exit_code == 0, result.output
     assert "game 114243: 17 shots, 187 rows" in result.output
-    assert [p.name for p in out.iterdir()] == ["114243.parquet"]
+    assert sorted(p.name for p in out.iterdir()) == ["114243.parquet", "roster.parquet"]
     assert CliRunner().invoke(app, ["frames", "build"]).exit_code == 2
 
 
@@ -103,3 +103,30 @@ def test_build_frames_out_dir(fixture_frames_built: Settings, tmp_path: Path) ->
     path = build_frames(GAME_ID, fixture_frames_built, out_dir=tmp_path)
     assert path == tmp_path / "114243.parquet"
     assert pl.read_parquet(path).equals(load_frames(GAME_ID, fixture_frames_built))
+
+
+def test_roster_written_and_deduplicated(fixture_frames_built: Settings, tmp_path: Path) -> None:
+    build_frames(GAME_ID, fixture_frames_built, out_dir=tmp_path)
+    build_frames(GAME_ID, fixture_frames_built, out_dir=tmp_path)  # rebuild: no duplicates
+    roster = pl.read_parquet(tmp_path / "roster.parquet")
+    assert dict(roster.schema) == ROSTER_SCHEMA
+    frames = load_frames(GAME_ID, fixture_frames_built)
+    players = set(frames["player_id"].drop_nulls())
+    assert set(roster["player_id"]) == players
+    assert roster["player_id"].is_unique().all()
+    assert roster["name"].null_count() == 0 and roster["team"].null_count() == 0
+
+
+def test_roster_is_not_a_main_table(fixture_frames_built: Settings, tmp_path: Path) -> None:
+    settings = Settings(data_dir=fixture_frames_built.data_dir, build_dir=tmp_path)
+    (tmp_path / "frames").mkdir()
+    build_frames(GAME_ID, fixture_frames_built, out_dir=tmp_path / "frames")
+    assert [p.name for p in load_module.frame_files(settings)] == ["114243.parquet"]
+    assert load_roster(settings).height > 0
+
+
+def test_load_roster_missing_hints_build(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(load_module, "ARTIFACTS_DIR", tmp_path)
+    settings = Settings(data_dir=tmp_path / "raw", build_dir=tmp_path / "build")
+    with pytest.raises(DataNotFoundError, match="frames build"):
+        load_roster(settings)

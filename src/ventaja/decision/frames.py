@@ -11,12 +11,12 @@ import polars as pl
 
 from ventaja.config import Settings
 from ventaja.data.build import _write_parquet_atomic
-from ventaja.data.load import load_decisions
+from ventaja.data.load import load_decisions, load_meta
 from ventaja.decision.align import Aligner
-from ventaja.errors import VentajaError
+from ventaja.errors import DataNotFoundError, VentajaError
 from ventaja.model.snapshot import BallPos, PlayerPos, Snapshot
 
-__all__ = ["FRAME_SCHEMA", "build_frames", "snapshot_from_frame"]
+__all__ = ["FRAME_SCHEMA", "ROSTER_FILE", "ROSTER_SCHEMA", "build_frames", "snapshot_from_frame"]
 
 FRAME_SCHEMA: dict[str, Any] = {
     "shot_id": pl.String,
@@ -41,6 +41,14 @@ FRAME_SCHEMA: dict[str, Any] = {
     "pred_error": pl.Float64,  # null on the ball row
     "vx": pl.Float64,
     "vy": pl.Float64,
+}
+ROSTER_FILE = "roster.parquet"
+ROSTER_SCHEMA: dict[str, Any] = {
+    "player_id": pl.Int64,
+    "name": pl.String,
+    "jersey": pl.String,  # nullable
+    "team_id": pl.Int64,
+    "team": pl.String,
 }
 _N_PER_SIDE = 5
 
@@ -94,8 +102,46 @@ def build_frames(game_id: int, settings: Settings, *, out_dir: Path | None = Non
         rows.extend(_frame_rows(shot_id, aligner.snapshot_for_shot(shot_id, decision=True)))
     out = out_dir if out_dir is not None else settings.frames_parquet(game_id).parent
     path = out / f"{game_id}.parquet"
-    _write_parquet_atomic(pl.DataFrame(rows, schema=FRAME_SCHEMA), path)
+    frames = pl.DataFrame(rows, schema=FRAME_SCHEMA)
+    _write_parquet_atomic(frames, path)
+    _update_roster(frames, settings, out)
     return path
+
+
+def _update_roster(frames: pl.DataFrame, settings: Settings, out_dir: Path) -> None:
+    """Merge the players of ``frames`` (from ``meta/``) into ``roster.parquet``.
+
+    The file is the union of the existing roster and the new rows, deduplicated on
+    ``player_id`` (new wins). Without ``meta/`` there is nothing to add and nothing is written.
+    """
+    try:
+        players = load_meta("players", settings)
+        games = load_meta("games", settings)
+    except DataNotFoundError:
+        return
+    teams: dict[int, str] = {}
+    for g in games.iter_rows(named=True):
+        teams[g["home_team_id"]] = g["home_team_name"]
+        teams[g["away_team_id"]] = g["away_team_name"]
+    meta = {p["player_id"]: p for p in players.iter_rows(named=True)}
+    seen = frames.filter(pl.col("player_id").is_not_null()).select("player_id", "team_id").unique()
+    rows = [
+        {
+            "player_id": pid,
+            "name": f"{meta[pid]['first_name']} {meta[pid]['last_name']}".strip(),
+            "jersey": meta[pid]["jersey"],
+            "team_id": tid,
+            "team": teams.get(tid),
+        }
+        for pid, tid in seen.iter_rows()
+        if pid in meta
+    ]
+    new = pl.DataFrame(rows, schema=ROSTER_SCHEMA)
+    path = out_dir / ROSTER_FILE
+    if path.exists():
+        old = pl.read_parquet(path).cast(ROSTER_SCHEMA)  # type: ignore[arg-type]
+        new = pl.concat([old, new]).unique("player_id", keep="last", maintain_order=True)
+    _write_parquet_atomic(new.sort("player_id"), path)
 
 
 def snapshot_from_frame(rows: pl.DataFrame) -> Snapshot:

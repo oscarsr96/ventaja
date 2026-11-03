@@ -185,7 +185,8 @@ def test_names_fall_back_to_player_cards(
     payload = clean_board.payload(state, clean_board.evaluate(state))
     shooter = next(p for p in payload["players"] if p["is_shooter"])
     assert shooter["name"] == shots["shooter"][0]
-    assert all(p["jersey"] is None for p in payload["players"])
+    assert all(p["name"] for p in payload["players"])
+    assert all(p["jersey"] is not None for p in payload["players"])  # from the packaged roster
 
 
 def test_clean_clone_builds_priors_from_packaged_file(tmp_path: Path) -> None:
