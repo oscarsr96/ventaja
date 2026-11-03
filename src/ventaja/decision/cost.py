@@ -9,7 +9,7 @@ import polars as pl
 from ventaja.config import Settings
 from ventaja.decision.align import Aligner
 from ventaja.errors import DataNotFoundError, NoTrackingError, VentajaError
-from ventaja.model.decision import AlternativeType, Decision, Option
+from ventaja.model.decision import AlternativeType, Decision, Option, Rule
 from ventaja.model.snapshot import Snapshot
 from ventaja.value.features import OPTION_FEATURES, option_rows, shot_kwargs
 from ventaja.value.model import ValueModel
@@ -22,12 +22,14 @@ from ventaja.value.params import (
     SHOT_CLOCK_MIN_PASS,
 )
 from ventaja.value.priors import Priors
+from ventaja.value.zones import Zone
 
 __all__ = [
     "ShooterOffCourtError",
     "build_decisions",
     "classify_alternative",
     "decide",
+    "decide_snapshot",
     "decision_from_tables",
     "viability",
 ]
@@ -108,8 +110,40 @@ def decide(aligner: Aligner, shot_id: str, priors: Priors, model: ValueModel) ->
         return None
     shot = aligner.shot(shot_id)
     snapshot = aligner.snapshot_for_shot(shot_id, decision=True)
+    return decide_snapshot(
+        snapshot,
+        shot,
+        priors,
+        model,
+        decision_frame=frame.frame_idx,
+        rule=frame.rule,
+        **shot_kwargs(shot),
+    )
+
+
+def decide_snapshot(
+    snapshot: Snapshot,
+    shot: Mapping[str, Any],
+    priors: Priors,
+    model: ValueModel,
+    *,
+    decision_frame: int,
+    rule: Rule,
+    shot_zone: Zone | None,
+    shot_three: bool | None,
+) -> Decision:
+    """Value a shot against its four pass options on an already built snapshot.
+
+    ``shot`` needs ``id``, ``game_id``, ``shooter_id`` and ``start_frame``. ``shot_zone`` and
+    ``shot_three`` describe the attempted shot (see ``shot_kwargs``); None values the shot from
+    the shooter's position, as the whiteboard does after moving him. Raises
+    ShooterOffCourtError if the shooter is not tracked in the snapshot.
+    """
+    shot_id = shot["id"]
     try:
-        rows = option_rows(snapshot, shot["shooter_id"], priors, **shot_kwargs(shot))
+        rows = option_rows(
+            snapshot, shot["shooter_id"], priors, shot_zone=shot_zone, shot_three=shot_three
+        )
     except VentajaError as exc:
         raise ShooterOffCourtError(f"shot {shot_id}: {exc}") from exc
     probas = model.predict_proba(rows).to_list()
@@ -130,11 +164,11 @@ def decide(aligner: Aligner, shot_id: str, priors: Priors, model: ValueModel) ->
         best, best_value, good_read = None, None, None
     return Decision(
         shot_id=shot_id,
-        game_id=aligner.game_id,
+        game_id=shot["game_id"],
         shooter_id=shot["shooter_id"],
-        decision_frame=frame.frame_idx,
+        decision_frame=decision_frame,
         release_frame=shot["start_frame"],
-        rule=frame.rule,
+        rule=rule,
         shot_clock=snapshot.shot_clock,
         shot_value=shot_option.value,
         best_alt_player_id=best.player_id if best else None,

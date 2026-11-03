@@ -10,11 +10,12 @@ EXPECTED_COMMANDS = {
     "model": {"train", "report"},
     "decisions": {"build", "show"},
     "curves": {"build", "show", "plot"},
+    "frames": {"build"},
     "review": {"sample"},
     "reel": {"rankings", "build"},
     "player": {"build", "show", "rank", "team"},
 }
-EXPECTED_TOP_LEVEL = {"sql", "snapshot", "clip"}
+EXPECTED_TOP_LEVEL = {"sql", "snapshot", "clip", "board"}
 
 # Command lines of `--help`, captured before cli.py was split into a package.
 ROOT_HELP = [
@@ -26,6 +27,7 @@ ROOT_HELP = [
     "model Train and inspect the value model.",
     "decisions Build and inspect shot decision costs.",
     "curves Build and inspect possession advantage curves.",
+    "frames Build the decision frames the whiteboard draws.",
     "review Prepare the live review of decisions.",
     "reel Rank decisions and build the reel of clips.",
 ]

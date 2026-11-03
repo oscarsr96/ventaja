@@ -1,16 +1,22 @@
 """Season priors per player and zone, shrunk toward the league rate."""
 
+from pathlib import Path
 from typing import Literal, Self
 
 import polars as pl
 import polars.selectors as cs
 
 from ventaja.config import Settings
+from ventaja.data.build import write_parquet_atomic
 from ventaja.data.load import load_aggregates
+from ventaja.errors import DataNotFoundError
 from ventaja.value.params import K_SHRINK
 from ventaja.value.zones import Zone
 
-__all__ = ["ContestLevel", "Priors"]
+__all__ = ["DEFAULT_PRIORS_PATH", "ContestLevel", "Priors"]
+
+# Next to the model; resolved from the package location (the repo root in an editable install).
+DEFAULT_PRIORS_PATH = Path(__file__).parents[3] / "models" / "priors.parquet"
 
 ContestLevel = Literal["open", "light", "average", "plus", "blocked"]
 
@@ -29,6 +35,23 @@ class Priors:
         shots = load_aggregates("shots", settings).filter(pl.col("team_id").is_not_null())
         numeric = shots.select("player_id", cs.numeric().exclude("player_id", "team_id"))
         return cls(numeric.group_by("player_id").sum())
+
+    def save(self, path: Path) -> None:
+        """Write the per-player summed table the priors are built from, atomically."""
+        path.parent.mkdir(parents=True, exist_ok=True)
+        write_parquet_atomic(self._players, path)
+
+    @classmethod
+    def load(cls, path: Path) -> Self:
+        """Read priors written by ``save``."""
+        if not path.exists():
+            raise DataNotFoundError(f"no priors at {path}; run `ventaja model train`")
+        return cls(pl.read_parquet(path))
+
+    @classmethod
+    def default(cls) -> Self:
+        """The priors saved at ``DEFAULT_PRIORS_PATH`` (packaged next to the model)."""
+        return cls.load(DEFAULT_PRIORS_PATH)
 
     def _total(self, column: str) -> float:
         return float(self._players.select(pl.col(column).cast(pl.Float64).sum()).item())

@@ -12,7 +12,7 @@ from ventaja.decision.align import Aligner
 from ventaja.errors import VentajaError
 from ventaja.value import model as model_module
 from ventaja.value.features import shot_rows
-from ventaja.value.priors import Priors
+from ventaja.value.priors import DEFAULT_PRIORS_PATH, Priors
 
 app = typer.Typer(help="Train and inspect the value model.", no_args_is_help=True)
 
@@ -58,6 +58,8 @@ def model_train(
         fitted.zone_table = model_module.zone_table(preds, priors).to_dicts()
         path = out or model_module.DEFAULT_MODEL_PATH
         fitted.save(path)
+        priors_path = path.parent / DEFAULT_PRIORS_PATH.name
+        priors.save(priors_path)
         model_module.plot_calibration(
             model_module.calibration_table(preds),
             figure,
@@ -71,6 +73,7 @@ def model_train(
     _print_metrics(fitted.metrics)
     _print_zone_table(fitted.zone_table)
     typer.echo(f"model -> {path}")
+    typer.echo(f"priors -> {priors_path}")
     typer.echo(f"figure -> {figure}")
 
 

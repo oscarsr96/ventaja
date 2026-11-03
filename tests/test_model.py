@@ -182,6 +182,7 @@ def test_cli_model_train_and_report_print_zone_table(
             ["model", "train", "--game", "114243", "--out", str(out), "--figure", str(fig)],
         )
     assert trained.exit_code == 0, trained.output
+    assert (tmp_path / "priors.parquet").exists() and "priors ->" in trained.output
     assert "mean_pred" in trained.output and "league" in trained.output
     stored = json.loads(out.read_text())["zone_table"]
     assert stored and {"zone", "n", "mean_pred", "observed_rate", "league_rate"} == set(stored[0])

@@ -1,0 +1,403 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ventaja board</title>
+<style>
+  :root { --ink:#1b1f24; --muted:#5f6b76; --line:#d5dbe1; --bg:#f4f6f8; --card:#fff; --good:#1a8a3c; --bad:#c62828; --accent:#2457a6; }
+  * { box-sizing: border-box; }
+  body { margin:0; padding:12px; background:var(--bg); color:var(--ink);
+         font:14px/1.4 system-ui,-apple-system,"Segoe UI",Roboto,Helvetica,Arial,sans-serif; }
+  main { max-width:1000px; margin:0 auto; display:flex; flex-direction:column; gap:10px; }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:8px; padding:10px 14px; }
+  h1 { margin:0 0 4px; font-size:13px; letter-spacing:.08em; text-transform:uppercase; color:var(--muted); }
+  #controls { display:flex; flex-wrap:wrap; gap:8px; align-items:center; }
+  select, button { font:inherit; padding:5px 9px; border:1px solid var(--line); border-radius:6px; background:#fff; color:var(--ink); }
+  select { max-width:100%; }
+  button { cursor:pointer; } button:hover { border-color:var(--accent); }
+  #shotSel { flex:1 1 320px; min-width:0; }
+  #layout { display:flex; flex-direction:column; gap:10px; }
+  #side { display:flex; flex-direction:column; gap:10px; min-width:0; }
+  @media (min-width:1100px) {
+    #layout { display:grid; grid-template-columns:minmax(0,1fr) minmax(560px,38%); align-items:start; }
+    main { max-width:1500px; }
+    #tableWrap { font-size:12px; padding:6px; } th, td { padding:3px 3px; }
+  }
+  #head { display:grid; grid-template-columns:repeat(auto-fit,minmax(190px,1fr)); gap:6px 14px; }
+  .k { color:var(--muted); font-size:12px; display:block; }
+  .v { font-size:15px; font-weight:600; }
+  .good { color:var(--good); } .bad { color:var(--bad); }
+  #moveNote { grid-column:1/-1; background:#fff4d6; border:1px solid #e8c55b; border-radius:6px; padding:4px 8px; font-weight:600; }
+  #headline { margin:0; font-size:15px; }
+  #courtWrap { padding:6px; }
+  #court { width:100%; aspect-ratio:61/57; max-height:calc(100vh - 190px); display:block; margin:0 auto; touch-action:none; user-select:none; }
+  .player { cursor:grab; } .player.drag { cursor:grabbing; }
+  .player text { pointer-events:none; text-anchor:middle; font-weight:700; }
+  .lbl { font-size:1.3px; font-weight:600; fill:#1b1f24; paint-order:stroke; stroke:#f2d9a8; stroke-width:.35px; }
+  .fb { font-style:italic; opacity:.7; }
+  #legend { display:flex; align-items:center; gap:8px; font-size:12px; color:var(--muted); margin-top:4px; flex-wrap:wrap; }
+  #legend i { display:inline-block; width:140px; height:10px; border-radius:5px; border:1px solid var(--line); }
+  #status { min-height:1.4em; color:var(--bad); font-size:13px; }
+  #status.info { color:var(--muted); }
+  #tableWrap { overflow-x:auto; }
+  table { border-collapse:collapse; width:100%; font-variant-numeric:tabular-nums; white-space:nowrap; }
+  th, td { padding:3px 8px; text-align:right; border-bottom:1px solid var(--line); }
+  th { color:var(--muted); font-size:12px; font-weight:600; }
+  th.l, td.l { text-align:left; }
+  td.nm { width:100%; max-width:0; min-width:36px; overflow:hidden; text-overflow:ellipsis; }
+  tr.shooter td { font-weight:700; } tr.alt td { background:#eaf3ff; }
+  td.sw { padding:3px 4px; text-align:center; }
+  td.sw b { display:inline-block; width:22px; height:22px; line-height:22px; border-radius:50%; font-size:11px; }
+  .hint { color:var(--muted); font-size:12px; margin-top:4px; }
+</style>
+</head>
+<body>
+<main>
+  <div class="card">
+    <h1>ventaja board</h1>
+    <div id="controls">
+      <select id="gameSel" aria-label="Game"></select>
+      <select id="shotSel" aria-label="Shot"></select>
+      <button id="resetBtn" type="button">Reset</button>
+      <button id="undoBtn" type="button">Undo last</button>
+    </div>
+  </div>
+  <div id="layout">
+  <div class="card" id="courtWrap">
+    <svg id="court" xmlns="http://www.w3.org/2000/svg" viewBox="-49 -28.5 61 57" role="img" aria-label="Half court with the ten players"></svg>
+    <div id="legend"><span>adjusted value</span><i id="legendBar"></i><span id="legendTxt">0.6 &rarr; 1.5 (offense); defense grey; ball orange; thick black ring = shooter; dashed = moved</span></div>
+    <div class="hint">Drag any player; the five option values recompute as you move.</div>
+  </div>
+  <div id="side">
+    <div class="card" id="head"></div>
+    <p id="headline"></p>
+    <div id="status" class="info" role="status"></div>
+    <div class="card" id="tableWrap"><table id="optTable"></table></div>
+  </div>
+  </div>
+</main>
+<script>
+'use strict';
+const NS = 'http://www.w3.org/2000/svg';
+const R = 1.5;                       // player radius, feet
+const V_LO = 0.6, V_HI = 1.5;        // fixed colour scale, same as the GIFs
+const STOPS = [[68,1,84],[59,82,139],[33,145,140],[94,201,98],[253,231,37]]; // viridis, 5 stops
+const DEBOUNCE_MS = 150;
+
+const $ = (id) => document.getElementById(id);
+const svg = $('court');
+let court = null;                    // /api/court payload
+let shots = [];                      // /api/shots rows
+let shotId = null;                   // selected shot
+let payload = null;                  // latest applied payload
+const moves = new Map();             // player_id -> {x, y}; insertion order = move recency
+let dragId = null;                   // player being dragged right now
+let grab = { dx: 0, dy: 0 };         // pointer-to-centre offset at pointerdown
+let lastPost = 0;                    // time of the last evaluate, for the leading-edge throttle
+let seq = 0;                         // request sequence counter; only the newest response is applied
+let timer = null;                    // debounce timer
+const nodes = new Map();             // player_id -> {g, circle, num, lbl}
+let arrow = null, ballEl = null;
+
+function el(tag, attrs, parent, text) {
+  const e = document.createElementNS(NS, tag);
+  for (const k in attrs) e.setAttribute(k, attrs[k]);
+  if (text !== undefined) e.textContent = text;
+  if (parent) parent.appendChild(e);
+  return e;
+}
+function h(tag, text, cls) {
+  const e = document.createElement(tag);
+  if (text !== undefined) e.textContent = text;
+  if (cls) e.className = cls;
+  return e;
+}
+const f = (v, d) => (v === null || v === undefined || Number.isNaN(v)) ? '-' : Number(v).toFixed(d);
+
+function viridis(value) {
+  const t = Math.min(1, Math.max(0, (value - V_LO) / (V_HI - V_LO)));
+  const s = t * (STOPS.length - 1), i = Math.min(STOPS.length - 2, Math.floor(s)), u = s - i;
+  const c = STOPS[i].map((a, k) => Math.round(a + (STOPS[i + 1][k] - a) * u));
+  return { css: 'rgb(' + c.join(',') + ')', t: t };
+}
+
+/* ---------- status and network ---------- */
+function setStatus(msg, info) {
+  const s = $('status');
+  s.textContent = msg || '';
+  s.className = info ? 'info' : '';
+}
+async function request(url, opts) { return parse(await fetch(url, opts)); }
+async function parse(resp) {
+  let body = null;
+  try { body = await resp.json(); } catch (e) { body = null; }
+  if (!resp.ok) {
+    let d = body && body.detail;
+    if (Array.isArray(d)) d = d.map((x) => (x.loc ? x.loc.join('.') + ': ' : '') + x.msg).join('; ');
+    throw new Error(d || ('HTTP ' + resp.status));
+  }
+  return body;
+}
+
+/* ---------- court (static lines, y flipped so +y is up) ---------- */
+function drawCourt() {
+  el('rect', { x: -49, y: -28.5, width: 61, height: 57, fill: '#f2d9a8', rx: 1 }, svg);
+  el('rect', { x: 0, y: -28.5, width: 12, height: 57, fill: '#dcc08b' }, svg);   // backcourt strip
+  el('text', { x: 6, y: -26.5, 'text-anchor': 'middle', 'font-size': 1.4, fill: '#8a7448' }, svg, 'backcourt');
+  const c = court, g = el('g', { fill: 'none', stroke: '#222', 'stroke-width': 0.18 }, svg);
+  const base = -c.half_length, side = c.width / 2, hx = c.hoop[0], hy = c.hoop[1];
+  const line = (x1, y1, x2, y2) => el('line', { x1: x1, y1: -y1, x2: x2, y2: -y2 }, g);
+  line(base, -side, base, side); line(base, side, 0, side);
+  line(base, -side, 0, -side); line(0, -side, 0, side);
+  el('circle', { cx: hx, cy: -hy, r: 0.75 }, g);
+  el('path', { d: 'M' + hx + ' ' + (-hy - c.ra_radius) + ' A' + c.ra_radius + ' ' + c.ra_radius + ' 0 0 1 ' + hx + ' ' + (-hy + c.ra_radius) }, g);
+  el('rect', { x: base, y: -c.key_half_width, width: c.key_x_max - base, height: 2 * c.key_half_width }, g);
+  el('circle', { cx: c.key_x_max, cy: 0, r: 6 }, g);
+  for (const y of [-c.corner_y, c.corner_y]) line(base, y, c.corner_x_max, y);
+  const r = c.three_point_radius;
+  el('path', { d: 'M' + c.corner_x_max + ' ' + (-c.corner_y) + ' A' + r + ' ' + r + ' 0 0 1 ' + c.corner_x_max + ' ' + c.corner_y }, g);
+}
+function initSvg() {
+  const defs = el('defs', {}, svg);
+  const m = el('marker', { id: 'ah', viewBox: '0 0 10 10', refX: 8, refY: 5, markerWidth: 5, markerHeight: 5, orient: 'auto-start-reverse' }, defs);
+  el('path', { d: 'M0 0L10 5L0 10z', fill: '#c0392b' }, m);
+  drawCourt();
+  arrow = el('line', { stroke: '#c0392b', 'stroke-width': 0.45, 'marker-end': 'url(#ah)', 'pointer-events': 'none', visibility: 'hidden' }, svg);
+  const stops = STOPS.map((c, i) => 'rgb(' + c.join(',') + ') ' + (i * 25) + '%').join(',');
+  $('legendBar').style.background = 'linear-gradient(90deg,' + stops + ')';
+}
+
+/* ---------- players ---------- */
+function buildPlayers(p) {
+  for (const n of nodes.values()) n.g.remove();
+  nodes.clear();
+  if (ballEl) ballEl.remove();
+  for (const pl of p.players) {
+    const g = el('g', { class: 'player' }, svg);
+    const circle = el('circle', { r: R }, g);
+    const num = el('text', { y: 0.5, 'font-size': 1.4 }, g);
+    const lbl = el('text', { y: R + 1.5, class: 'lbl', 'text-anchor': 'middle' }, g);
+    g.addEventListener('pointerdown', (ev) => startDrag(ev, pl.player_id, g));
+    g.addEventListener('pointermove', (ev) => onDrag(ev, pl.player_id));
+    g.addEventListener('pointerup', (ev) => endDrag(ev, pl.player_id, g));
+    g.addEventListener('pointercancel', (ev) => endDrag(ev, pl.player_id, g));
+    nodes.set(pl.player_id, { g: g, circle: circle, num: num, lbl: lbl });
+  }
+  ballEl = el('circle', { r: 0.8, fill: '#f08a24', stroke: '#7a3b00', 'stroke-width': 0.2, 'pointer-events': 'none' }, svg);
+}
+function jersey(pl) { return pl.jersey !== null && pl.jersey !== undefined ? String(pl.jersey) : String(pl.player_id).slice(-2); }
+
+function place(id, x, y) {
+  const n = nodes.get(id);
+  if (n) n.g.setAttribute('transform', 'translate(' + x + ' ' + (-y) + ')');
+}
+function currentPos(pl) {
+  if (dragId === pl.player_id && moves.has(pl.player_id)) return moves.get(pl.player_id);
+  return { x: pl.x, y: pl.y };
+}
+
+function render() {
+  if (!payload) return;
+  const optBy = drawBoard(payload);
+  renderHeader(payload);
+  renderTable(payload, optBy);
+}
+function drawBoard(p) {
+  const optBy = new Map(p.options.map((o) => [o.player_id, o]));
+  const pos = new Map();
+  for (const pl of p.players) {
+    const n = nodes.get(pl.player_id), o = optBy.get(pl.player_id), q = currentPos(pl);
+    pos.set(pl.player_id, q);
+    place(pl.player_id, q.x, q.y);
+    let fill = '#9aa3ab', txt = '#fff';
+    if (pl.side === 'offense') {
+      const v = o ? viridis(o.adjusted_value) : { css: '#ccc', t: 0 };
+      fill = v.css; txt = v.t > 0.6 ? '#111' : '#fff';
+    }
+    n.circle.setAttribute('fill', fill);
+    n.circle.setAttribute('stroke', pl.is_shooter ? '#000' : '#333');
+    n.circle.setAttribute('stroke-width', pl.is_shooter ? 0.55 : 0.2);
+    n.circle.setAttribute('stroke-dasharray', pl.moved || moves.has(pl.player_id) ? '0.5 0.35' : '');
+    n.num.setAttribute('fill', txt);
+    n.num.textContent = jersey(pl);
+    n.num.classList.toggle('fb', pl.jersey === null || pl.jersey === undefined);
+    n.lbl.setAttribute('y', q.y < -22 ? -(R + 0.6) : R + 1.5);   // keep the label off the sideline
+    n.lbl.textContent = pl.side === 'offense' && o ? f(o.adjusted_value, 2) : '';
+    n.g.classList.toggle('drag', dragId === pl.player_id);
+  }
+  const s = pos.get(p.shooter_id);
+  const alt = p.best_alt_player_id === null || p.best_alt_player_id === undefined ? null : pos.get(p.best_alt_player_id);
+  if (s && alt) {
+    const dx = alt.x - s.x, dy = alt.y - s.y, d = Math.hypot(dx, dy) || 1;
+    arrow.setAttribute('x1', s.x + dx / d * R); arrow.setAttribute('y1', -(s.y + dy / d * R));
+    arrow.setAttribute('x2', alt.x - dx / d * (R + 0.4)); arrow.setAttribute('y2', -(alt.y - dy / d * (R + 0.4)));
+    arrow.setAttribute('visibility', d > 2 * R ? 'visible' : 'hidden');
+  } else arrow.setAttribute('visibility', 'hidden');
+  if (s) { ballEl.setAttribute('cx', s.x + 1.2); ballEl.setAttribute('cy', -(s.y - 1.2)); }
+  svg.appendChild(ballEl);
+  return optBy;
+}
+
+/* ---------- header and table ---------- */
+function field(label, valueNode) {
+  const d = h('div'); d.appendChild(h('span', label, 'k')); valueNode.classList.add('v'); d.appendChild(valueNode); return d;
+}
+function clock(p) { return p.shot_clock === null || p.shot_clock === undefined ? 'clock unknown' : f(p.shot_clock, 1) + ' s on shot clock'; }
+function hasJersey(pl) { return pl.jersey !== null && pl.jersey !== undefined; }
+function playerLabel(pl) { return (hasJersey(pl) ? '#' + jersey(pl) : '(id ..' + jersey(pl) + ')') + ' ' + (pl.name || '-'); }
+function renderHeader(p) {
+  const hd = $('head'); hd.textContent = '';
+  const sh = p.players.find((x) => x.player_id === p.shooter_id);
+  const row = shots.find((x) => x.shot_id === p.shot_id);
+  const team = (row && row.team) || (sh && sh.team_id !== null ? 'team ' + sh.team_id : '-');
+  hd.appendChild(field('Shooter', h('div', (sh ? playerLabel(sh) : String(p.shooter_id)) + ' · ' + team)));
+  hd.appendChild(field('Rule · period · clock', h('div', p.rule + ' · P' + p.period + ' · ' + clock(p))));
+  const alt = p.best_alt_value === null || p.best_alt_value === undefined;
+  hd.appendChild(field('Shot value → best alternative', h('div', f(p.shot_value, 3) + ' → ' + (alt ? 'no viable pass' : f(p.best_alt_value, 3)))));
+  const cost = h('div'); cost.appendChild(document.createTextNode(f(p.original_cost, 3) + ' → ' + f(p.cost, 3) + ' '));
+  const dc = Math.abs(p.delta_cost) < 5e-4 ? 0 : p.delta_cost;   // float noise is not a change
+  const dl = h('span', '(' + (dc > 0 ? '+' : '') + f(dc, 3) + ')', dc < 0 ? 'good' : dc > 0 ? 'bad' : '');
+  cost.appendChild(dl);
+  hd.appendChild(field('Cost: original → current (delta)', cost));
+  if (sh && (sh.moved || moves.has(p.shooter_id))) hd.appendChild(h('div', 'The shot is valued from the new position.', '')).id = 'moveNote';
+}
+function renderTable(p, optBy) {
+  const t = $('optTable'); t.textContent = '';
+  const heads = ['', 'no.', 'type', 'zone', 'P', 'val', 'viab', 'adj', 'alt', 'name'];
+  const tr = h('tr');
+  heads.forEach((x, i) => tr.appendChild(h('th', x, i === 0 || i === 2 || i === 3 || i >= 8 ? 'l' : '')));
+  t.appendChild(tr);
+  const byId = new Map(p.players.map((x) => [x.player_id, x]));
+  for (const o of p.options) {
+    const pl = byId.get(o.player_id) || {};
+    const mark = o.player_id === p.shooter_id ? '*' : (o.player_id === p.best_alt_player_id ? '>' : ' ');
+    const r = h('tr', undefined, mark === '*' ? 'shooter' : mark === '>' ? 'alt' : '');
+    const sw = h('td', undefined, 'sw'), b = h('b', jersey(pl)), v = viridis(o.adjusted_value);
+    b.style.background = v.css; b.classList.toggle('fb', !hasJersey(pl)); b.style.color = v.t > 0.6 ? '#111' : '#fff'; sw.appendChild(b);
+    const cells = [mark, null, o.option_type, o.zone, f(o.proba, 2), f(o.value, 3), f(o.viability, 2), f(o.adjusted_value, 3), o.alternative_type || '-', pl.name || '-'];
+    cells.forEach((c, i) => {
+      if (c === null) { r.appendChild(sw); return; }
+      const td = h('td', String(c), (i === 0 || i === 2 || i === 3 || i >= 8 ? 'l' : '') + (i === 9 ? ' nm' : ''));
+      if (i === 9) td.title = String(c);
+      r.appendChild(td);
+    });
+    t.appendChild(r);
+  }
+}
+function renderHeadline() {
+  const row = shots.find((x) => x.shot_id === shotId);
+  $('headline').textContent = row && row.headline_en ? row.headline_en : '';
+}
+
+/* ---------- drag, debounce, evaluate ---------- */
+function toFeet(ev) {
+  const pt = svg.createSVGPoint(); pt.x = ev.clientX; pt.y = ev.clientY;
+  const q = pt.matrixTransform(svg.getScreenCTM().inverse());
+  return { x: q.x, y: -q.y };
+}
+function clampToCourt(q) {   // the server clamps too: a backcourt player snaps to the half line
+  const hl = court.half_length, hw = court.width / 2;
+  return { x: Math.min(0, Math.max(-hl, q.x)), y: Math.min(hw, Math.max(-hw, q.y)) };
+}
+function startDrag(ev, id, g) {
+  if (!payload) return;
+  ev.preventDefault();
+  const pl = payload.players.find((x) => x.player_id === id), at = moves.get(id) || pl, m = toFeet(ev);
+  grab = { dx: at.x - m.x, dy: at.y - m.y };   // keep the point of the circle that was grabbed
+  dragId = id;
+  g.setPointerCapture(ev.pointerId);
+  g.classList.add('drag');
+}
+function onDrag(ev, id) {
+  if (dragId !== id) return;
+  const m = toFeet(ev), q = clampToCourt({ x: m.x + grab.dx, y: m.y + grab.dy });
+  moves.delete(id); moves.set(id, q);          // re-insert: this player is now the most recent
+  drawBoard(payload);                          // circle, label, arrow and ball follow at once
+  clearTimeout(timer);
+  const wait = lastPost + DEBOUNCE_MS - Date.now();   // first move posts now, then at most every 150 ms
+  if (wait <= 0) evaluate(); else timer = setTimeout(evaluate, wait);
+}
+function endDrag(ev, id, g) {
+  if (dragId !== id) return;
+  if (g.hasPointerCapture(ev.pointerId)) g.releasePointerCapture(ev.pointerId);
+  dragId = null;
+  clearTimeout(timer);
+  if (moves.has(id)) evaluate(); else render();
+}
+async function evaluate() {
+  clearTimeout(timer);
+  if (!shotId) return;
+  if (moves.size === 0) { await loadShot(shotId); return; }
+  const mine = ++seq;
+  lastPost = Date.now();
+  const body = { moves: Array.from(moves, ([player_id, q]) => ({ player_id: player_id, x: q.x, y: q.y })) };
+  try {
+    const p = await request('/api/shot/' + encodeURIComponent(shotId) + '/evaluate', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
+    });
+    if (mine !== seq) return;                  // a newer request is in flight
+    for (const m of p.moves) if (moves.has(m.player_id) && dragId !== m.player_id) moves.set(m.player_id, { x: m.x, y: m.y });
+    payload = p; setStatus('');
+    render();
+  } catch (e) {
+    if (mine === seq) setStatus('Evaluate failed: ' + e.message);
+  }
+}
+async function loadShot(id) {
+  const mine = ++seq;
+  try {
+    const p = await request('/api/shot/' + encodeURIComponent(id));
+    if (mine !== seq) return;
+    if (payload === null || !nodes.size) buildPlayers(p);
+    payload = p; setStatus('');
+    render();
+  } catch (e) {
+    if (mine === seq) setStatus('Could not load shot: ' + e.message);
+  }
+}
+function selectShot(id) {
+  shotId = id; moves.clear(); dragId = null; clearTimeout(timer); payload = null;
+  renderHeadline();
+  return loadShot(id);
+}
+function reset() { moves.clear(); clearTimeout(timer); if (shotId) loadShot(shotId); }
+function undo() {
+  if (moves.size === 0) { setStatus('Nothing to undo.', true); return; }
+  const last = Array.from(moves.keys()).pop();
+  moves.delete(last);
+  evaluate();
+}
+
+/* ---------- selectors and start ---------- */
+function fillShots() {
+  const game = $('gameSel').value, sel = $('shotSel');
+  sel.textContent = '';
+  for (const s of shots.filter((x) => String(x.game_id) === game)) {
+    const o = document.createElement('option');
+    o.value = s.shot_id;
+    o.textContent = s.shot_id + ' · ' + (s.shooter || s.shooter_id) + ' · ' + (s.team || '-') + ' · cost ' + f(s.cost, 2);
+    sel.appendChild(o);
+  }
+  if (sel.value) return selectShot(sel.value);
+  return Promise.resolve();
+}
+async function start() {
+  try {
+    court = await request('/api/court');
+    shots = await parse(await fetch('/api/shots'));
+  } catch (e) { setStatus('Could not load court or shots: ' + e.message); return; }
+  initSvg();
+  if (!shots.length) { setStatus('No valued shots to show.', true); return; }
+  const games = Array.from(new Set(shots.map((s) => s.game_id)));
+  for (const g of games) { const o = document.createElement('option'); o.value = String(g); o.textContent = 'game ' + g; $('gameSel').appendChild(o); }
+  $('gameSel').addEventListener('change', fillShots);
+  $('shotSel').addEventListener('change', (ev) => selectShot(ev.target.value));
+  $('resetBtn').addEventListener('click', reset);
+  $('undoBtn').addEventListener('click', undo);
+  await fillShots();
+}
+start();
+</script>
+</body>
+</html>

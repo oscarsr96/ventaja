@@ -4,7 +4,7 @@ Basketball tracking analytics for the SkillCorner x PySport Analytics Cup.
 
 ## Stack
 
-Python >=3.12, managed with `uv`. Layout `src/ventaja/`. polars, duckdb, pydantic v2, httpx, typer. Quality: ruff, mypy (strict), pytest. License MIT.
+Python >=3.12, managed with `uv`. Layout `src/ventaja/`. polars, duckdb, pydantic v2, httpx, typer, fastapi, uvicorn. Quality: ruff, mypy (strict), pytest. License MIT.
 
 ## Commands
 
@@ -23,6 +23,8 @@ Python >=3.12, managed with `uv`. Layout `src/ventaja/`. polars, duckdb, pydanti
 - `uv run ventaja review sample --all --n 20 --seed 7 --out docs/review/2026-11-sample`
 - `uv run ventaja reel rankings --all --n 10`, `uv run ventaja reel build --all --n 10 --out docs/reel/2026-11` (`--fps`; GIFs are gitignored, `index.md` is committed)
 - `uv run ventaja player build --out artifacts` (default `--out`: the build's `players/`), `uv run ventaja player show "Russell"` (`--lang en`), `uv run ventaja player rank --min-shots 8`, `uv run ventaja player team "Madrid"`
+- `uv run ventaja frames build --all` (or `--game N`; `--out artifacts/frames`, default `--out`: the build's `frames/`; also writes `roster.parquet`)
+- `uv run ventaja board` (`--host 127.0.0.1`, `--port 8765`, `--game ID` repeatable, `--no-open`): the whiteboard, runs from the packaged artifacts
 - Real-data tests: `VENTAJA_REALDATA_DIR=<raw dir> VENTAJA_REALDATA_BUILD_DIR=<scratch build dir> uv run pytest -m realdata`
 
 ## Conventions
@@ -36,7 +38,8 @@ Python >=3.12, managed with `uv`. Layout `src/ventaja/`. polars, duckdb, pydanti
 - A raw shot clock of 0.0 is the clock switched off: `Aligner` reads it as `None` (unknown), unless a countdown reached it within the previous `SHOT_CLOCK_EXPIRY_LOOKBACK` = 25 frames, in which case it has expired and stays 0.0 (ADR-0007).
 - CLI lives in the `src/ventaja/cli/` package: one module per sub-app, shared helpers in `cli/_common.py`.
 - Layer 3 constants (`PROFILE_MIN_SHOTS` = 8, `LATE_MIN_CLOCK` = 2.5 s, ...) live in `value/params.py`; the phrase rules and thresholds live in `value/params.py` and `profile/phrase.py` and change only via an ADR.
-- `models/` and `artifacts/` are derived, versioned artifacts: regenerate them in this order with `ventaja model train --all`, `ventaja decisions build --all --out artifacts/decisions`, `ventaja curves build --all --out artifacts/curves` (`artifacts/curves/` depends on both) and `ventaja player build --out artifacts` (`artifacts/players.parquet` and `teams.parquet` depend on the decisions, the curves, `meta/` and the aggregates), never edit them by hand.
+- `models/` and `artifacts/` are derived, versioned artifacts: regenerate them in this order with `ventaja model train --all` (writes `models/value_model.json` and `models/priors.parquet`, the per-player shot aggregate the priors are built from), `ventaja decisions build --all --out artifacts/decisions`, `ventaja curves build --all --out artifacts/curves` (`artifacts/curves/` depends on both), `ventaja player build --out artifacts` (`artifacts/players.parquet` and `teams.parquet` depend on the decisions, the curves, `meta/` and the aggregates) and `ventaja frames build --all --out artifacts/frames` (`artifacts/frames/` and its `roster.parquet` depend on the decisions and the tracking), never edit them by hand.
+- Layer 4 constants (`BOARD_MAX_MOVES` = 10, `BOARD_MOVED_VELOCITY` = 0.0, `BOARD_PORT` = 8765) live in `value/params.py`. `board/static/index.html` is dependency-free (SVG + vanilla JS, no build) and stays at 600 lines or fewer. `decide_snapshot` in `decision/cost.py` is the single valuation entry point (ADR-0009).
 
 ## References
 

@@ -256,3 +256,32 @@ def test_player_cards_cover_every_shooter(real_settings: Settings, tmp_path: Pat
     late = full.filter(pl.col("phrase_es").str.contains("tiende a tirar"))
     assert late.height == 17
     assert not late["name"].is_in(["Chris Duarte", "Kevin Punter", "Dylan Ennis"]).any()
+
+
+def test_decision_frames_rebuild_the_aligner_snapshots(
+    real_settings: Settings, tmp_path: Path
+) -> None:
+    """Layer 4: 1,351 valued shots x 11 rows, and 20 random shots (seed 7) rebuild exactly the
+    snapshot of the aligner at the decision frame."""
+    import random
+
+    from ventaja.data.load import load_decisions
+    from ventaja.decision.frames import FRAME_SCHEMA, build_frames, snapshot_from_frame
+
+    rows = 0
+    shots: list[tuple[int, str]] = []
+    frames_by_game: dict[int, pl.DataFrame] = {}
+    for game_id in GAME_IDS:
+        valued = load_decisions(game_id, real_settings).filter(pl.col("rule") != "excluded")
+        frames = pl.read_parquet(build_frames(game_id, real_settings, out_dir=tmp_path))
+        assert dict(frames.schema) == FRAME_SCHEMA, game_id
+        assert sorted(frames["shot_id"].unique()) == sorted(valued["shot_id"]), game_id
+        assert frames.height == 11 * valued.height, game_id
+        rows += frames.height
+        frames_by_game[game_id] = frames
+        shots.extend((game_id, s) for s in valued["shot_id"])
+    assert len(shots) == 1351 and rows == 1351 * 11
+    for game_id, shot_id in random.Random(7).sample(shots, 20):
+        rebuilt = snapshot_from_frame(frames_by_game[game_id].filter(pl.col("shot_id") == shot_id))
+        expected = Aligner(game_id, real_settings).snapshot_for_shot(shot_id, decision=True)
+        assert rebuilt == expected, shot_id
