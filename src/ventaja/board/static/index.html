@@ -20,9 +20,9 @@
   #layout { display:flex; flex-direction:column; gap:10px; }
   #side { display:flex; flex-direction:column; gap:10px; min-width:0; }
   @media (min-width:1100px) {
-    #layout { display:grid; grid-template-columns:minmax(0,1fr) 490px; align-items:start; }
+    #layout { display:grid; grid-template-columns:minmax(0,1fr) minmax(560px,38%); align-items:start; }
     main { max-width:1500px; }
-    #tableWrap { font-size:11.5px; padding:6px; } th, td { padding:3px 4px; }
+    #tableWrap { font-size:12px; padding:6px; } th, td { padding:3px 3px; }
   }
   #head { display:grid; grid-template-columns:repeat(auto-fit,minmax(190px,1fr)); gap:6px 14px; }
   .k { color:var(--muted); font-size:12px; display:block; }
@@ -45,6 +45,7 @@
   th, td { padding:3px 8px; text-align:right; border-bottom:1px solid var(--line); }
   th { color:var(--muted); font-size:12px; font-weight:600; }
   th.l, td.l { text-align:left; }
+  td.nm { width:100%; max-width:0; min-width:36px; overflow:hidden; text-overflow:ellipsis; }
   tr.shooter td { font-weight:700; } tr.alt td { background:#eaf3ff; }
   td.sw { padding:3px 4px; text-align:center; }
   td.sw b { display:inline-block; width:22px; height:22px; line-height:22px; border-radius:50%; font-size:11px; }
@@ -143,7 +144,7 @@ async function parse(resp) {
 function drawCourt() {
   el('rect', { x: -49, y: -28.5, width: 61, height: 57, fill: '#f2d9a8', rx: 1 }, svg);
   el('rect', { x: 0, y: -28.5, width: 12, height: 57, fill: '#dcc08b' }, svg);   // backcourt strip
-  el('text', { x: 6, y: -26.5, 'text-anchor': 'middle', 'font-size': 1.4, fill: '#8a7448' }, svg, 'backcourt (not modelled)');
+  el('text', { x: 6, y: -26.5, 'text-anchor': 'middle', 'font-size': 1.4, fill: '#8a7448' }, svg, 'backcourt');
   const c = court, g = el('g', { fill: 'none', stroke: '#222', 'stroke-width': 0.18 }, svg);
   const base = -c.half_length, side = c.width / 2, hx = c.hoop[0], hy = c.hoop[1];
   const line = (x1, y1, x2, y2) => el('line', { x1: x1, y1: -y1, x2: x2, y2: -y2 }, g);
@@ -263,7 +264,7 @@ function renderHeader(p) {
 }
 function renderTable(p, optBy) {
   const t = $('optTable'); t.textContent = '';
-  const heads = ['', 'jersey', 'type', 'zone', 'P', 'value', 'viab', 'adj', 'alternative', 'name'];
+  const heads = ['', 'no.', 'type', 'zone', 'P', 'val', 'viab', 'adj', 'alt', 'name'];
   const tr = h('tr');
   heads.forEach((x, i) => tr.appendChild(h('th', x, i === 0 || i === 2 || i === 3 || i >= 8 ? 'l' : '')));
   t.appendChild(tr);
@@ -277,7 +278,9 @@ function renderTable(p, optBy) {
     const cells = [mark, null, o.option_type, o.zone, f(o.proba, 2), f(o.value, 3), f(o.viability, 2), f(o.adjusted_value, 3), o.alternative_type || '-', pl.name || '-'];
     cells.forEach((c, i) => {
       if (c === null) { r.appendChild(sw); return; }
-      r.appendChild(h('td', String(c), i === 0 || i === 2 || i === 3 || i >= 8 ? 'l' : ''));
+      const td = h('td', String(c), (i === 0 || i === 2 || i === 3 || i >= 8 ? 'l' : '') + (i === 9 ? ' nm' : ''));
+      if (i === 9) td.title = String(c);
+      r.appendChild(td);
     });
     t.appendChild(r);
   }

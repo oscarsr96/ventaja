@@ -10,7 +10,13 @@ from ventaja.data import load as load_module
 from ventaja.data.duck import connect
 from ventaja.data.load import load_decisions, load_frames, load_roster
 from ventaja.decision.align import Aligner
-from ventaja.decision.frames import FRAME_SCHEMA, ROSTER_SCHEMA, build_frames, snapshot_from_frame
+from ventaja.decision.frames import (
+    FRAME_SCHEMA,
+    ROSTER_SCHEMA,
+    _update_roster,
+    build_frames,
+    snapshot_from_frame,
+)
 from ventaja.errors import DataNotFoundError, VentajaError
 
 GAME_ID = 114243
@@ -130,3 +136,14 @@ def test_load_roster_missing_hints_build(tmp_path: Path, monkeypatch: pytest.Mon
     settings = Settings(data_dir=tmp_path / "raw", build_dir=tmp_path / "build")
     with pytest.raises(DataNotFoundError, match="frames build"):
         load_roster(settings)
+
+
+def test_roster_dedups_player_listed_with_two_teams(
+    fixture_frames_built: Settings, tmp_path: Path
+) -> None:
+    frames = load_frames(GAME_ID, fixture_frames_built)
+    twice = frames.filter(pl.col("player_id").is_not_null()).head(1)
+    traded = twice.with_columns(pl.col("team_id") + 1)
+    _update_roster(pl.concat([frames, traded]), fixture_frames_built, tmp_path)  # fresh build
+    roster = pl.read_parquet(tmp_path / "roster.parquet")
+    assert roster["player_id"].is_unique().all()

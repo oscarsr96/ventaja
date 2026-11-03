@@ -140,7 +140,8 @@ def _update_roster(frames: pl.DataFrame, settings: Settings, out_dir: Path) -> N
     path = out_dir / ROSTER_FILE
     if path.exists():
         old = pl.read_parquet(path).cast(ROSTER_SCHEMA)  # type: ignore[arg-type]
-        new = pl.concat([old, new]).unique("player_id", keep="last", maintain_order=True)
+        new = pl.concat([old, new])
+    new = new.unique("player_id", keep="last", maintain_order=True)
     _write_parquet_atomic(new.sort("player_id"), path)
 
 
