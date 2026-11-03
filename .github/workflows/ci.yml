@@ -41,6 +41,7 @@ jobs:
       - run: uv run ventaja validate decisions --game 114243 --allow-fail cost_falls_with_clock
       - run: uv run ventaja decisions show shot-114243-1-0
       - run: uv run ventaja curves build --game 114243
+      - run: uv run ventaja frames build --game 114243
       - run: uv run ventaja clip shot-114243-1-0 --out /tmp/clip.gif
       - run: uv run ventaja reel rankings --game 114243 --n 3
       # Player cards read the versioned artifacts/players.parquet; no build needed.
@@ -65,5 +66,6 @@ jobs:
       - run: uv run ventaja validate decisions --all --allow-fail cost_falls_with_clock
       # Curves to /tmp: the versioned artifacts/curves/ is never overwritten.
       - run: uv run ventaja curves build --all --out /tmp/curves
+      - run: uv run ventaja frames build --all --out /tmp/frames
       - run: uv run ventaja reel rankings --all
       - run: uv run ventaja player build --out /tmp/players
