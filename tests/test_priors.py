@@ -1,10 +1,16 @@
+from pathlib import Path
+from typing import get_args
+
 import polars as pl
 import polars.selectors as cs
+import pytest
 
 from ventaja.config import Settings
 from ventaja.data.load import load_aggregates
+from ventaja.errors import DataNotFoundError
 from ventaja.value.params import K_SHRINK
 from ventaja.value.priors import Priors
+from ventaja.value.zones import Zone
 
 
 def _players(settings: Settings) -> pl.DataFrame:
@@ -69,3 +75,30 @@ def test_contest_rates(built_fixture: Settings) -> None:
     league = p.league_contest_rate("open")
     expected = (best["cl_open_mades"] + K_SHRINK * league) / (best["cl_open_attempts"] + K_SHRINK)
     assert p.player_contest_rate(best["player_id"], "open") == expected
+
+
+def test_save_load_round_trip(built_fixture: Settings, tmp_path: Path) -> None:
+    priors = Priors.from_settings(built_fixture)
+    priors.save(tmp_path / "sub" / "priors.parquet")
+    loaded = Priors.load(tmp_path / "sub" / "priors.parquet")
+    players = list(priors._players["player_id"][:5])
+    for zone in get_args(Zone):
+        assert loaded.league_rate(zone) == priors.league_rate(zone)
+        for player in players:
+            assert loaded.player_rate(player, zone) == priors.player_rate(player, zone)
+    for level in ("open", "light", "average", "plus", "blocked"):
+        assert loaded.league_contest_rate(level) == priors.league_contest_rate(level)
+        for player in players:
+            assert loaded.player_contest_rate(player, level) == priors.player_contest_rate(
+                player, level
+            )
+
+
+def test_default_missing_raises(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr("ventaja.value.priors.DEFAULT_PRIORS_PATH", tmp_path / "nope.parquet")
+    with pytest.raises(DataNotFoundError, match="ventaja model train"):
+        Priors.default()
+
+
+def test_packaged_priors_load() -> None:
+    assert Priors.default().league_rate(get_args(Zone)[0]) > 0

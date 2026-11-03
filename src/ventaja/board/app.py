@@ -86,12 +86,9 @@ def create_app(
 
     @app.get("/api/shots")
     def shots(game: int | None = None) -> list[dict[str, Any]]:
-        if game is not None:
-            frame = board.shots(game) if allowed is None or game in allowed else board.shots(-1)
-        elif allowed is None:
-            frame = board.shots()
-        else:
-            frame = board.shots().filter(pl.col("game_id").is_in(sorted(allowed)))
+        frame = board.shots(game)
+        if allowed is not None:
+            frame = frame.filter(pl.col("game_id").is_in(sorted(allowed)))
         return _json_rows(frame.sort("cost", descending=True, nulls_last=True))
 
     @app.get("/api/shot/{shot_id}")

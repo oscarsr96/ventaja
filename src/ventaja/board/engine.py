@@ -100,6 +100,14 @@ def _read_all(paths: list[Any]) -> pl.DataFrame:
     return pl.concat([pl.read_parquet(p) for p in paths], how="vertical_relaxed")
 
 
+def _priors_for(settings: Settings) -> Priors:
+    """Priors from the build's aggregates, else the ones packaged next to the model."""
+    try:
+        return Priors.from_settings(settings)
+    except DataNotFoundError:
+        return Priors.default()
+
+
 class Board:
     """Loads shots, moves players and values the result."""
 
@@ -112,7 +120,7 @@ class Board:
     ) -> None:
         self.settings = settings
         self.model = model or ValueModel.default()
-        self.priors = priors or Priors.from_settings(settings)
+        self.priors = priors or _priors_for(settings)
         decision_paths, _ = decision_files(settings)
         self._decisions = _read_all(decision_paths) if decision_paths else pl.DataFrame()
         self._game_of: dict[str, int] = (

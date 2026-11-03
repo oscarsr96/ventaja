@@ -186,3 +186,18 @@ def test_names_fall_back_to_player_cards(
     shooter = next(p for p in payload["players"] if p["is_shooter"])
     assert shooter["name"] == shots["shooter"][0]
     assert all(p["jersey"] is None for p in payload["players"])
+
+
+def test_clean_clone_builds_priors_from_packaged_file(tmp_path: Path) -> None:
+    """No build dir, no aggregates: the priors packaged next to the model are used."""
+    clean = Settings(data_dir=tmp_path / "raw", build_dir=tmp_path / "build")
+    packaged = Board(clean)
+    shot_id = packaged.shots()["shot_id"][0]
+    game_id = int(shot_id.split("-")[1])
+    want = decision_from_tables(
+        shot_id, load_decisions(game_id, clean), load_decision_options(game_id, clean)
+    )
+    got = packaged.evaluate(packaged.load(shot_id))
+    assert got.cost == pytest.approx(want.cost, abs=1e-6)
+    assert got.shot_value == pytest.approx(want.shot_value, abs=1e-6)
+    assert got.best_alt_value == pytest.approx(want.best_alt_value, abs=1e-6)

@@ -1,6 +1,9 @@
+import socket
+import threading
 from pathlib import Path
 from typing import Any
 
+import polars as pl
 import pytest
 from fastapi.testclient import TestClient
 from typer.testing import CliRunner
@@ -9,6 +12,7 @@ from ventaja.board.app import create_app
 from ventaja.board.engine import Board, court_payload
 from ventaja.cli import app as cli_app
 from ventaja.config import Settings
+from ventaja.data.load import load_decisions
 from ventaja.errors import VentajaError
 from ventaja.value.model import ValueModel
 from ventaja.value.params import BOARD_MAX_MOVES
@@ -46,9 +50,14 @@ def test_court(client: TestClient) -> None:
     assert response.json() == court_payload()
 
 
-def test_shots_list_only_valued(client: TestClient, engine: Board) -> None:
+def test_shots_list_only_valued(client: TestClient, fixture_frames_built: Settings) -> None:
     rows = client.get("/api/shots").json()
-    assert len(rows) == engine.shots().height
+    decisions = load_decisions(GAME_ID, fixture_frames_built)
+    valued = set(decisions.filter(pl.col("rule") != "excluded")["shot_id"])
+    excluded = set(decisions.filter(pl.col("rule") == "excluded")["shot_id"])
+    ids = {r["shot_id"] for r in rows}
+    assert excluded and ids and ids <= valued and not ids & excluded
+    assert all(client.get(f"/api/shot/{i}").status_code == 200 for i in ids)
     costs = [r["cost"] for r in rows if r["cost"] is not None]
     assert costs == sorted(costs, reverse=True)
     nulls = [r["cost"] is None for r in rows]
@@ -143,3 +152,26 @@ def test_cli_board_serves_without_opening(
     result = CliRunner().invoke(cli_app, ["board", "--no-open", "--port", "8799", "--game", "1"])
     assert result.exit_code == 0
     assert served == {"host": "127.0.0.1", "port": 8799, "log_level": "warning"}
+
+
+def test_cli_board_opens_browser_once_listening(monkeypatch: pytest.MonkeyPatch) -> None:
+    opened: list[str] = []
+    done = threading.Event()
+
+    def fake_open(url: str) -> None:
+        opened.append(url)
+        done.set()
+
+    def fake_run(app: object, **kw: Any) -> None:
+        listener = socket.socket()
+        listener.bind(("127.0.0.1", kw["port"]))
+        listener.listen()
+        assert done.wait(5) and not opened[1:]
+        listener.close()
+
+    monkeypatch.setattr("ventaja.cli.board.uvicorn.run", fake_run)
+    monkeypatch.setattr("ventaja.cli.board.webbrowser.open", fake_open)
+    monkeypatch.setattr("ventaja.cli.board.create_app", lambda settings, **kw: object())
+    result = CliRunner().invoke(cli_app, ["board", "--port", "8798"])
+    assert result.exit_code == 0
+    assert opened == ["http://127.0.0.1:8798/"]
