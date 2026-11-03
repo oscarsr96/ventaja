@@ -5,13 +5,25 @@ from typing import Annotated
 import typer
 
 from ventaja import __version__
-from ventaja.cli import curves, data, decisions, frames, model, player, review, snapshot, validate
+from ventaja.cli import (
+    board,
+    curves,
+    data,
+    decisions,
+    frames,
+    model,
+    player,
+    review,
+    snapshot,
+    validate,
+)
 from ventaja.cli import reel as reel_commands
 
 app = typer.Typer(name="ventaja", no_args_is_help=True)
 app.command("sql")(snapshot.sql)
 app.command("snapshot")(snapshot.snapshot)
 app.command("clip")(snapshot.clip)
+app.command("board")(board.board)
 app.add_typer(data.app, name="data")
 app.add_typer(validate.app, name="validate")
 app.add_typer(model.app, name="model")

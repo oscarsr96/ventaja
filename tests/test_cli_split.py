@@ -15,7 +15,7 @@ EXPECTED_COMMANDS = {
     "reel": {"rankings", "build"},
     "player": {"build", "show", "rank", "team"},
 }
-EXPECTED_TOP_LEVEL = {"sql", "snapshot", "clip"}
+EXPECTED_TOP_LEVEL = {"sql", "snapshot", "clip", "board"}
 
 # Command lines of `--help`, captured before cli.py was split into a package.
 ROOT_HELP = [
