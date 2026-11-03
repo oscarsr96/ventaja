@@ -287,7 +287,7 @@ function renderTable(p, optBy) {
 }
 function renderHeadline() {
   const row = shots.find((x) => x.shot_id === shotId);
-  $('headline').textContent = row && row.headline_es ? row.headline_es : '';
+  $('headline').textContent = row && row.headline_en ? row.headline_en : '';
 }
 
 /* ---------- drag, debounce, evaluate ---------- */
@@ -301,6 +301,7 @@ function clampToCourt(q) {   // the server clamps too: a backcourt player snaps 
   return { x: Math.min(0, Math.max(-hl, q.x)), y: Math.min(hw, Math.max(-hw, q.y)) };
 }
 function startDrag(ev, id, g) {
+  if (!payload) return;
   ev.preventDefault();
   const pl = payload.players.find((x) => x.player_id === id), at = moves.get(id) || pl, m = toFeet(ev);
   grab = { dx: at.x - m.x, dy: at.y - m.y };   // keep the point of the circle that was grabbed

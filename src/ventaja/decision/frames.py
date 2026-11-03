@@ -10,8 +10,8 @@ from typing import Any
 import polars as pl
 
 from ventaja.config import Settings
-from ventaja.data.build import _write_parquet_atomic
-from ventaja.data.load import load_decisions, load_meta
+from ventaja.data.build import write_parquet_atomic
+from ventaja.data.load import load_decisions, meta_people
 from ventaja.decision.align import Aligner
 from ventaja.errors import DataNotFoundError, VentajaError
 from ventaja.model.snapshot import BallPos, PlayerPos, Snapshot
@@ -103,7 +103,7 @@ def build_frames(game_id: int, settings: Settings, *, out_dir: Path | None = Non
     out = out_dir if out_dir is not None else settings.frames_parquet(game_id).parent
     path = out / f"{game_id}.parquet"
     frames = pl.DataFrame(rows, schema=FRAME_SCHEMA)
-    _write_parquet_atomic(frames, path)
+    write_parquet_atomic(frames, path)
     _update_roster(frames, settings, out)
     return path
 
@@ -115,26 +115,20 @@ def _update_roster(frames: pl.DataFrame, settings: Settings, out_dir: Path) -> N
     ``player_id`` (new wins). Without ``meta/`` there is nothing to add and nothing is written.
     """
     try:
-        players = load_meta("players", settings)
-        games = load_meta("games", settings)
+        names, jerseys, teams = meta_people(settings)
     except DataNotFoundError:
         return
-    teams: dict[int, str] = {}
-    for g in games.iter_rows(named=True):
-        teams[g["home_team_id"]] = g["home_team_name"]
-        teams[g["away_team_id"]] = g["away_team_name"]
-    meta = {p["player_id"]: p for p in players.iter_rows(named=True)}
     seen = frames.filter(pl.col("player_id").is_not_null()).select("player_id", "team_id").unique()
     rows = [
         {
             "player_id": pid,
-            "name": f"{meta[pid]['first_name']} {meta[pid]['last_name']}".strip(),
-            "jersey": meta[pid]["jersey"],
+            "name": names[pid],
+            "jersey": jerseys.get(pid),
             "team_id": tid,
             "team": teams.get(tid),
         }
         for pid, tid in seen.iter_rows()
-        if pid in meta
+        if pid in names
     ]
     new = pl.DataFrame(rows, schema=ROSTER_SCHEMA)
     path = out_dir / ROSTER_FILE
@@ -142,7 +136,7 @@ def _update_roster(frames: pl.DataFrame, settings: Settings, out_dir: Path) -> N
         old = pl.read_parquet(path).cast(ROSTER_SCHEMA)  # type: ignore[arg-type]
         new = pl.concat([old, new])
     new = new.unique("player_id", keep="last", maintain_order=True)
-    _write_parquet_atomic(new.sort("player_id"), path)
+    write_parquet_atomic(new.sort("player_id"), path)
 
 
 def snapshot_from_frame(rows: pl.DataFrame) -> Snapshot:

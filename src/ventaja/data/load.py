@@ -185,6 +185,26 @@ def load_meta(table: str, settings: Settings) -> pl.DataFrame:
     return pl.read_parquet(path)
 
 
+def meta_people(
+    settings: Settings,
+) -> tuple[dict[int, str], dict[int, str], dict[int, str]]:
+    """Player names, player jerseys (non-null only) and team names from ``meta/``.
+
+    Raises ``DataNotFoundError`` if ``players`` or ``games`` has not been built.
+    """
+    names: dict[int, str] = {}
+    jerseys: dict[int, str] = {}
+    teams: dict[int, str] = {}
+    for p in load_meta("players", settings).iter_rows(named=True):
+        names[p["player_id"]] = f"{p['first_name']} {p['last_name']}".strip()
+        if p["jersey"] is not None:
+            jerseys[p["player_id"]] = p["jersey"]
+    for g in load_meta("games", settings).iter_rows(named=True):
+        teams[g["home_team_id"]] = g["home_team_name"]
+        teams[g["away_team_id"]] = g["away_team_name"]
+    return names, jerseys, teams
+
+
 def load_aggregates(name: str, settings: Settings) -> pl.DataFrame:
     """One built season-aggregate table (``shots``, ``drives`` or ``picks``)."""
     path = settings.aggregates_parquet(name)

@@ -7,9 +7,7 @@ import webbrowser
 from typing import Annotated
 
 import typer
-import uvicorn
 
-from ventaja.board.app import create_app
 from ventaja.cli._common import GameOption, run_or_exit, settings_or_exit
 from ventaja.value.params import BOARD_PORT
 
@@ -37,6 +35,10 @@ def board(
     no_open: Annotated[bool, typer.Option("--no-open", help="Do not open the browser.")] = False,
 ) -> None:
     """Serve the whiteboard: drag players and see what the decision would cost."""
+    import uvicorn
+
+    from ventaja.board.app import create_app
+
     settings = settings_or_exit()
     app = run_or_exit(lambda: create_app(settings, games=game or None))
     url = f"http://{host}:{port}/"

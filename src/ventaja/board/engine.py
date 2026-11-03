@@ -13,12 +13,13 @@ from ventaja.config import Settings
 from ventaja.data.load import (
     curve_files,
     decision_files,
+    frame_files,
     load_decision_options,
     load_frames,
-    load_meta,
     load_players_cards,
     load_roster,
     load_teams_cards,
+    meta_people,
 )
 from ventaja.decision.cost import decide_snapshot, decision_from_tables
 from ventaja.decision.frames import snapshot_from_frame
@@ -55,6 +56,7 @@ _SHOT_COLUMNS = [
     "cost",
     "good_read",
     "headline_es",
+    "headline_en",
 ]
 
 
@@ -131,9 +133,11 @@ class Board:
         )
         _, summary_paths = curve_files(settings)
         self._headlines = (
-            _read_all(summary_paths).select("shot_id", "headline_es")
+            _read_all(summary_paths).select("shot_id", "headline_es", "headline_en")
             if summary_paths
-            else pl.DataFrame(schema={"shot_id": pl.String, "headline_es": pl.String})
+            else pl.DataFrame(
+                schema={"shot_id": pl.String, "headline_es": pl.String, "headline_en": pl.String}
+            )
         )
         self._names, self._jerseys, self._team_names = self._load_meta()
         self._frames: dict[int, pl.DataFrame] = {}
@@ -159,15 +163,13 @@ class Board:
         except DataNotFoundError:
             pass
         try:
-            players = load_meta("players", self.settings)
-            games = load_meta("games", self.settings)
-            for p in players.iter_rows(named=True):
-                names.setdefault(p["player_id"], f"{p['first_name']} {p['last_name']}".strip())
-                if p["jersey"] is not None:
-                    jerseys.setdefault(p["player_id"], p["jersey"])
-            for g in games.iter_rows(named=True):
-                teams.setdefault(g["home_team_id"], g["home_team_name"])
-                teams.setdefault(g["away_team_id"], g["away_team_name"])
+            meta_names, meta_jerseys, meta_teams = meta_people(self.settings)
+            for k, v in meta_names.items():
+                names.setdefault(k, v)
+            for k, v in meta_jerseys.items():
+                jerseys.setdefault(k, v)
+            for k, v in meta_teams.items():
+                teams.setdefault(k, v)
         except DataNotFoundError:
             pass
         try:
@@ -195,7 +197,11 @@ class Board:
         """The valued shots (optionally of one game) with who took them and what they cost."""
         if self._decisions.height == 0:
             return pl.DataFrame(schema=dict.fromkeys(_SHOT_COLUMNS, pl.Null))
-        valued = self._decisions.filter(pl.col("rule") != "excluded")
+        # Only the games with a frames table are listed; ``load`` still 404s on the others.
+        with_frames = {int(p.stem) for p in frame_files(self.settings)}
+        valued = self._decisions.filter(
+            (pl.col("rule") != "excluded") & pl.col("game_id").is_in(sorted(with_frames))
+        )
         if game_id is not None:
             valued = valued.filter(pl.col("game_id") == game_id)
         game_ids = valued["game_id"].unique().to_list()
@@ -254,6 +260,9 @@ class Board:
                 "start_frame": original.release_frame,
             },
             shot_zone=shot_option.zone,  # type: ignore[arg-type]
+            # Layer 1 derives is_three by geometry when the event's ``three`` is null; the stored
+            # option's points equal it (0 mismatches over the 1 351 shots) unless a future
+            # decisions table stores points from the event flag against the geometry.
             shot_three=shot_option.points == 3,
         )
 

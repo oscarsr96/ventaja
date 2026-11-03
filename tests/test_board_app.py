@@ -6,6 +6,7 @@ from typing import Any
 import polars as pl
 import pytest
 from fastapi.testclient import TestClient
+from helpers import decisions_for_all_frames_for_one
 from typer.testing import CliRunner
 
 from ventaja.board.app import create_app
@@ -146,9 +147,9 @@ def test_cli_board_serves_without_opening(
     fixture_frames_built: Settings, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     served: dict[str, Any] = {}
-    monkeypatch.setattr("ventaja.cli.board.uvicorn.run", lambda app, **kw: served.update(kw))
+    monkeypatch.setattr("uvicorn.run", lambda app, **kw: served.update(kw))
     monkeypatch.setattr("ventaja.cli.board.webbrowser.open", lambda url: pytest.fail("opened"))
-    monkeypatch.setattr("ventaja.cli.board.create_app", lambda settings, **kw: object())
+    monkeypatch.setattr("ventaja.board.app.create_app", lambda settings, **kw: object())
     result = CliRunner().invoke(cli_app, ["board", "--no-open", "--port", "8799", "--game", "1"])
     assert result.exit_code == 0
     assert served == {"host": "127.0.0.1", "port": 8799, "log_level": "warning"}
@@ -169,9 +170,9 @@ def test_cli_board_opens_browser_once_listening(monkeypatch: pytest.MonkeyPatch)
         assert done.wait(5) and not opened[1:]
         listener.close()
 
-    monkeypatch.setattr("ventaja.cli.board.uvicorn.run", fake_run)
+    monkeypatch.setattr("uvicorn.run", fake_run)
     monkeypatch.setattr("ventaja.cli.board.webbrowser.open", fake_open)
-    monkeypatch.setattr("ventaja.cli.board.create_app", lambda settings, **kw: object())
+    monkeypatch.setattr("ventaja.board.app.create_app", lambda settings, **kw: object())
     result = CliRunner().invoke(cli_app, ["board", "--port", "8798"])
     assert result.exit_code == 0
     assert opened == ["http://127.0.0.1:8798/"]
@@ -185,3 +186,9 @@ def test_index_page_static_contract(client: TestClient) -> None:
     assert "<link " not in html
     index = Path(__file__).parent.parent / "src" / "ventaja" / "board" / "static" / "index.html"
     assert len(index.read_text(encoding="utf-8").splitlines()) <= 600
+
+
+def test_shots_endpoint_with_more_decisions_than_frames(tmp_path: Path) -> None:
+    settings = decisions_for_all_frames_for_one(tmp_path)
+    rows = TestClient(create_app(settings)).get("/api/shots").json()
+    assert rows and {r["game_id"] for r in rows} == {GAME_ID}

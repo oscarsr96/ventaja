@@ -1,9 +1,13 @@
 """Builders for synthetic test objects."""
 
+import shutil
+from pathlib import Path
 from typing import Any, Literal
 
 import polars as pl
 
+from ventaja.config import Settings
+from ventaja.data.load import ARTIFACTS_DIR
 from ventaja.model.decision import Decision, Option
 from ventaja.model.snapshot import BallPos, PlayerPos, Snapshot
 
@@ -135,3 +139,13 @@ def make_summaries(rows: list[dict[str, Any]]) -> pl.DataFrame:
         "shot_value": 0.9,
     }
     return pl.DataFrame([base | r for r in rows], schema=SUMMARY_SCHEMA)
+
+
+def decisions_for_all_frames_for_one(tmp_path: Path) -> Settings:
+    """Build dir with the ten packaged decision tables but the frames of one game only."""
+    build = tmp_path / "build"
+    shutil.copytree(ARTIFACTS_DIR / "decisions", build / "decisions")
+    (build / "frames").mkdir(parents=True)
+    shutil.copy(ARTIFACTS_DIR / "frames" / f"{114243}.parquet", build / "frames")
+    shutil.copy(ARTIFACTS_DIR / "frames" / "roster.parquet", build / "frames")
+    return Settings(data_dir=tmp_path / "raw", build_dir=build)

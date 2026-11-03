@@ -4,6 +4,7 @@ from typing import Any
 
 import polars as pl
 import pytest
+from helpers import decisions_for_all_frames_for_one
 
 from ventaja.board.engine import Board, BoardState, court_payload
 from ventaja.config import Settings
@@ -43,6 +44,7 @@ def test_shots_lists_valued_only(board: Board) -> None:
         "cost",
         "good_read",
         "headline_es",
+        "headline_en",
     ]
     assert board.shots(GAME_ID).height == VALUED_SHOTS
     assert board.shots(1).height == 0
@@ -202,3 +204,37 @@ def test_clean_clone_builds_priors_from_packaged_file(tmp_path: Path) -> None:
     assert got.cost == pytest.approx(want.cost, abs=1e-6)
     assert got.shot_value == pytest.approx(want.shot_value, abs=1e-6)
     assert got.best_alt_value == pytest.approx(want.best_alt_value, abs=1e-6)
+
+
+def test_packaged_artifacts_reproduce_every_decision(tmp_path: Path) -> None:
+    """Empty build dir: each packaged valued shot re-evaluates, unmoved, to its stored row."""
+    clean = Settings(data_dir=tmp_path / "raw", build_dir=tmp_path / "build")
+    packaged = Board(clean)
+    shots = packaged.shots()
+    assert shots.height == 1351
+    for shot_id in shots["shot_id"]:
+        game_id = int(shot_id.split("-")[1])
+        state = packaged.load(shot_id)
+        payload = packaged.payload(state, packaged.evaluate(state))
+        want = state.original
+        assert payload["shot_value"] == pytest.approx(want.shot_value, abs=1e-6), shot_id
+        assert payload["best_alt_value"] == pytest.approx(want.best_alt_value, abs=1e-6), shot_id
+        assert payload["cost"] == pytest.approx(want.cost, abs=1e-6), shot_id
+        assert [o["adjusted_value"] for o in payload["options"]] == pytest.approx(
+            [o.adjusted_value for o in want.options], abs=1e-6
+        ), shot_id
+        assert all(p["name"] and p["jersey"] is not None for p in payload["players"]), shot_id
+        assert game_id == state.game_id
+
+
+def test_shots_lists_only_games_with_frames(tmp_path: Path) -> None:
+    board = Board(decisions_for_all_frames_for_one(tmp_path))
+    assert board._decisions["game_id"].n_unique() >= 2
+    shots = board.shots()
+    assert shots.height and set(shots["game_id"]) == {GAME_ID}
+    assert shots["shooter"].null_count() == 0
+    other = board._decisions.filter(
+        (pl.col("game_id") != GAME_ID) & (pl.col("rule") != "excluded")
+    )["shot_id"][0]
+    with pytest.raises(DataNotFoundError):
+        board.load(other)

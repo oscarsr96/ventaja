@@ -24,7 +24,7 @@ _NO_FRAMES = "no decision frames found; run `ventaja frames build --all` first"
 
 
 class Move(BaseModel):
-    """One player dragged to a position (court metres, offense orientation)."""
+    """One player dragged to a position (court feet, offense orientation)."""
 
     model_config = ConfigDict(extra="forbid")
 
@@ -65,7 +65,7 @@ def create_app(
     try:
         board = Board(settings, model=model, priors=priors)
     except DataNotFoundError as exc:
-        raise VentajaError(f"{exc}; run `ventaja frames build --all` first") from exc
+        raise VentajaError(str(exc)) from exc
     allowed = None if games is None else set(games)
 
     app = FastAPI(title="ventaja board")
