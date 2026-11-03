@@ -175,3 +175,13 @@ def test_cli_board_opens_browser_once_listening(monkeypatch: pytest.MonkeyPatch)
     result = CliRunner().invoke(cli_app, ["board", "--port", "8798"])
     assert result.exit_code == 0
     assert opened == ["http://127.0.0.1:8798/"]
+
+
+def test_index_page_static_contract(client: TestClient) -> None:
+    html = client.get("/").text
+    for needle in ('id="court"', "fetch('/api/shots')", "pointerdown", "/evaluate"):
+        assert needle in html
+    assert "<script src=" not in html
+    assert "<link " not in html
+    index = Path(__file__).parent.parent / "src" / "ventaja" / "board" / "static" / "index.html"
+    assert len(index.read_text(encoding="utf-8").splitlines()) <= 600
