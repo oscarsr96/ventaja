@@ -16,11 +16,8 @@ from ventaja.data.load import (
     frame_files,
     load_decision_options,
     load_frames,
-    load_players_cards,
-    load_roster,
-    load_teams_cards,
-    meta_people,
 )
+from ventaja.data.people import load_people
 from ventaja.decision.cost import decide_snapshot, decision_from_tables
 from ventaja.decision.frames import snapshot_from_frame
 from ventaja.errors import DataNotFoundError
@@ -139,49 +136,10 @@ class Board:
                 schema={"shot_id": pl.String, "headline_es": pl.String, "headline_en": pl.String}
             )
         )
-        self._names, self._jerseys, self._team_names = self._load_meta()
+        people = load_people(settings)
+        self._names, self._jerseys, self._team_names = people.names, people.jerseys, people.teams
         self._frames: dict[int, pl.DataFrame] = {}
         self._options: dict[int, pl.DataFrame] = {}
-
-    def _load_meta(self) -> tuple[dict[int, str], dict[int, str], dict[int, str]]:
-        """Names, jerseys and team names: packaged roster, then ``meta/``, then player cards.
-
-        Each source only fills the ids still missing. The roster is exactly the players of the
-        frames and travels with them; ``meta/`` covers frames that predate the roster; the cards
-        cover the carded players (no jerseys), so a clean clone still names the shooters.
-        """
-        names: dict[int, str] = {}
-        jerseys: dict[int, str] = {}
-        teams: dict[int, str] = {}
-        try:
-            for r in load_roster(self.settings).iter_rows(named=True):
-                names.setdefault(r["player_id"], r["name"])
-                if r["jersey"] is not None:
-                    jerseys.setdefault(r["player_id"], r["jersey"])
-                if r["team"] is not None:
-                    teams.setdefault(r["team_id"], r["team"])
-        except DataNotFoundError:
-            pass
-        try:
-            meta_names, meta_jerseys, meta_teams = meta_people(self.settings)
-            for k, v in meta_names.items():
-                names.setdefault(k, v)
-            for k, v in meta_jerseys.items():
-                jerseys.setdefault(k, v)
-            for k, v in meta_teams.items():
-                teams.setdefault(k, v)
-        except DataNotFoundError:
-            pass
-        try:
-            for c in load_players_cards(self.settings).iter_rows(named=True):
-                if c["player_id"] != 0:  # the LIGA row
-                    names.setdefault(c["player_id"], c["name"])
-                    teams.setdefault(c["team_id"], c["team"])
-            for t in load_teams_cards(self.settings).iter_rows(named=True):
-                teams.setdefault(t["team_id"], t["team"])
-        except DataNotFoundError:
-            pass
-        return names, jerseys, teams
 
     def _game_frames(self, game_id: int) -> pl.DataFrame:
         if game_id not in self._frames:
