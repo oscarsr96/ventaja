@@ -94,11 +94,11 @@ Cards cover 10 games: 190 players have one from a single valued shot (median 6 s
 uv run ventaja board
 ```
 
-Drag any of the ten players on the decision frame of a shot and the values recompute at once; a moved shooter is valued from the new position. It runs from packaged artifacts, with no tracking download. Method and limits: [ADR-0009](docs/decisions/0009-pizarra.md).
+Drag any of the ten players on the decision frame of a shot (2.5D view by default, 2D toggle) and the values recompute at once; a moved shooter is valued from the new position. It runs from packaged artifacts, with no tracking download. Method and limits: [ADR-0009](docs/decisions/0009-pizarra.md).
 
 ![Whiteboard with the shooter dragged into the restricted area](docs/figures/board-shot-114243-3-108.jpg)
 
-*Louis Olinde dragged into the restricted area: the decision cost falls from 1.53 to 0.76.*
+*Louis Olinde dragged into the restricted area: the decision cost falls from 1.53 to 0.74.*
 
 ## Ask the court
 

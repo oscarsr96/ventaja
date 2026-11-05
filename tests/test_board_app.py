@@ -45,6 +45,12 @@ def test_index_served(client: TestClient) -> None:
     assert "<!doctype html>" in response.text.lower()
 
 
+def test_index_has_view_structure(client: TestClient) -> None:
+    text = client.get("/").text
+    for marker in ('id="viewSel"', "id: 'ground'", "id: 'figures'"):
+        assert marker in text
+
+
 def test_court(client: TestClient) -> None:
     response = client.get("/api/court")
     assert response.status_code == 200
