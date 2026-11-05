@@ -31,10 +31,11 @@
   #moveNote { grid-column:1/-1; background:#fff4d6; border:1px solid #e8c55b; border-radius:6px; padding:4px 8px; font-weight:600; }
   #headline { margin:0; font-size:15px; }
   #courtWrap { padding:6px; }
-  #court { width:100%; aspect-ratio:61/57; max-height:calc(100vh - 190px); display:block; margin:0 auto; touch-action:none; user-select:none; }
+  #court { width:100%; aspect-ratio:74/40; max-height:calc(100vh - 190px); display:block; margin:0 auto; touch-action:none; user-select:none; }
   .player { cursor:grab; } .player.drag { cursor:grabbing; }
   .player text { pointer-events:none; text-anchor:middle; font-weight:700; }
   .lbl { font-size:1.3px; font-weight:600; fill:#1b1f24; paint-order:stroke; stroke:#f2d9a8; stroke-width:.35px; }
+  .lbl5 { font-size:16px; font-weight:600; fill:#1b1f24; paint-order:stroke; stroke:#f2d9a8; stroke-width:5px; }
   .fb { font-style:italic; opacity:.7; }
   #legend { display:flex; align-items:center; gap:8px; font-size:12px; color:var(--muted); margin-top:4px; flex-wrap:wrap; }
   #legend i { display:inline-block; width:140px; height:10px; border-radius:5px; border:1px solid var(--line); }
@@ -59,6 +60,7 @@
     <div id="controls">
       <select id="gameSel" aria-label="Game"></select>
       <select id="shotSel" aria-label="Shot"></select>
+      <select id="viewSel" aria-label="View"><option value="2.5D">2.5D</option><option value="2D">2D</option></select>
       <button id="resetBtn" type="button">Reset</button>
       <button id="undoBtn" type="button">Undo last</button>
     </div>
@@ -66,7 +68,7 @@
   <div id="layout">
   <div class="card" id="courtWrap">
     <svg id="court" xmlns="http://www.w3.org/2000/svg" viewBox="-49 -28.5 61 57" role="img" aria-label="Half court with the ten players"></svg>
-    <div id="legend"><span>adjusted value</span><i id="legendBar"></i><span id="legendTxt">0.6 &rarr; 1.5 (offense); defense grey; ball orange; thick black ring = shooter; dashed = moved</span></div>
+    <div id="legend"><span>adjusted value</span><i id="legendBar"></i><span id="legendTxt">0.6 &rarr; 1.5 (offense); defense grey; ball orange; thick black outline = shooter; dashed ring = moved; silhouette height is not real height</span></div>
     <div class="hint">Drag any player; the five option values recompute as you move.</div>
   </div>
   <div id="side">
@@ -84,6 +86,8 @@ const R = 1.5;                       // player radius, feet
 const V_LO = 0.6, V_HI = 1.5;        // fixed colour scale, same as the GIFs
 const STOPS = [[68,1,84],[59,82,139],[33,145,140],[94,201,98],[253,231,37]]; // viridis, 5 stops
 const DEBOUNCE_MS = 150;
+const K = 0.25, DEPTH = 0.55, U0 = 0, V0 = 0;   // 2.5D: oblique skew, depth compression, offsets (feet)
+const VIEWS = { '2D': '-49 -28.5 61 57', '2.5D': '-30 -35 74 40' };
 
 const $ = (id) => document.getElementById(id);
 const svg = $('court');
@@ -98,7 +102,8 @@ let lastPost = 0;                    // time of the last evaluate, for the leadi
 let seq = 0;                         // request sequence counter; only the newest response is applied
 let timer = null;                    // debounce timer
 const nodes = new Map();             // player_id -> {g, circle, num, lbl}
-let arrow = null, ballEl = null;
+let arrow = null, ballEl = null, ground = null, figures = null, shadows = null, bcLbl = null;
+let view = '2.5D';                   // '2.5D' | '2D', remembered in localStorage
 
 function el(tag, attrs, parent, text) {
   const e = document.createElementNS(NS, tag);
@@ -142,10 +147,10 @@ async function parse(resp) {
 
 /* ---------- court (static lines, y flipped so +y is up) ---------- */
 function drawCourt() {
-  el('rect', { x: -49, y: -28.5, width: 61, height: 57, fill: '#f2d9a8', rx: 1 }, svg);
-  el('rect', { x: 0, y: -28.5, width: 12, height: 57, fill: '#dcc08b' }, svg);   // backcourt strip
-  el('text', { x: 6, y: -26.5, 'text-anchor': 'middle', 'font-size': 1.4, fill: '#8a7448' }, svg, 'backcourt');
-  const c = court, g = el('g', { fill: 'none', stroke: '#222', 'stroke-width': 0.18 }, svg);
+  el('rect', { x: -49, y: -28.5, width: 61, height: 57, fill: '#f2d9a8', rx: 1 }, ground);
+  el('rect', { x: 0, y: -28.5, width: 12, height: 57, fill: '#dcc08b' }, ground);   // backcourt strip
+  bcLbl = el('text', { 'text-anchor': 'middle', 'font-size': 1.4, fill: '#8a7448' }, svg, 'backcourt');   // screen space, see setView
+  const c = court, g = el('g', { fill: 'none', stroke: '#222', 'stroke-width': 0.18 }, ground);
   const base = -c.half_length, side = c.width / 2, hx = c.hoop[0], hy = c.hoop[1];
   const line = (x1, y1, x2, y2) => el('line', { x1: x1, y1: -y1, x2: x2, y2: -y2 }, g);
   line(base, -side, base, side); line(base, side, 0, side);
@@ -162,35 +167,73 @@ function initSvg() {
   const defs = el('defs', {}, svg);
   const m = el('marker', { id: 'ah', viewBox: '0 0 10 10', refX: 8, refY: 5, markerWidth: 5, markerHeight: 5, orient: 'auto-start-reverse' }, defs);
   el('path', { d: 'M0 0L10 5L0 10z', fill: '#c0392b' }, m);
+  ground = el('g', { id: 'ground' }, svg);
   drawCourt();
-  arrow = el('line', { stroke: '#c0392b', 'stroke-width': 0.45, 'marker-end': 'url(#ah)', 'pointer-events': 'none', visibility: 'hidden' }, svg);
+  figures = el('g', { id: 'figures' }, svg);
+  shadows = el('g', { 'pointer-events': 'none' }, ground);
+  arrow = el('line', { stroke: '#c0392b', 'stroke-width': 0.45, 'marker-end': 'url(#ah)', 'pointer-events': 'none', visibility: 'hidden' }, ground);
   const stops = STOPS.map((c, i) => 'rgb(' + c.join(',') + ') ' + (i * 25) + '%').join(',');
   $('legendBar').style.background = 'linear-gradient(90deg,' + stops + ')';
 }
 
+/* ---------- views: one affine matrix on #ground, figures projected by hand ---------- */
+// 2.5D: U = K*x + y + K*HL + U0, V = -DEPTH*(x + HL) + V0. On the drawn coords (x, -y) that is
+// matrix(a b c d e f) with a=K, b=-DEPTH, c=-1, d=0, e=K*HL+U0, f=-DEPTH*HL+V0.
+function project(x, y) {
+  if (view === '2D') return [x, -y];
+  const hl = court.half_length;
+  return [K * (x + hl) + y + U0, -DEPTH * (x + hl) + V0];
+}
+function setView(v) {
+  view = v === '2D' ? '2D' : '2.5D';
+  $('viewSel').value = view;
+  const hl = court.half_length, iso = view !== '2D';
+  ground.setAttribute('transform', iso ? 'matrix(' + [K, -DEPTH, -1, 0, K * hl + U0, -DEPTH * hl + V0].join(' ') + ')' : 'matrix(1 0 0 1 0 0)');
+  svg.setAttribute('viewBox', VIEWS[view]);
+  svg.style.aspectRatio = VIEWS[view].split(' ').slice(2).join('/');
+  const b = project(6, 26.5);
+  bcLbl.setAttribute('x', b[0]); bcLbl.setAttribute('y', b[1]);
+  shadows.setAttribute('display', iso ? '' : 'none');
+  for (const n of nodes.values()) { n.flat.setAttribute('display', iso ? 'none' : ''); n.iso.setAttribute('display', iso ? '' : 'none'); }
+}
+
 /* ---------- players ---------- */
 function buildPlayers(p) {
-  for (const n of nodes.values()) n.g.remove();
+  for (const n of nodes.values()) { n.g.remove(); n.shadow.remove(); n.ring.remove(); }
   nodes.clear();
   if (ballEl) ballEl.remove();
   for (const pl of p.players) {
-    const g = el('g', { class: 'player' }, svg);
-    const circle = el('circle', { r: R }, g);
-    const num = el('text', { y: 0.5, 'font-size': 1.4 }, g);
-    const lbl = el('text', { y: R + 1.5, class: 'lbl', 'text-anchor': 'middle' }, g);
+    const shadow = el('circle', { r: R, fill: 'rgba(0,0,0,.25)' }, shadows);
+    const ring = el('circle', { r: R + 0.3, fill: 'none', stroke: '#333', 'stroke-width': 0.2, 'stroke-dasharray': '0.5 0.35' }, shadows);
+    const g = el('g', { class: 'player' }, figures);
+    const flat = el('g', {}, g);                                   // 2D: circle marker
+    const circle = el('circle', { r: R }, flat);
+    const num = el('text', { y: 0.5, 'font-size': 1.4 }, flat);
+    const lbl = el('text', { y: R + 1.5, class: 'lbl', 'text-anchor': 'middle' }, flat);
+    const iso = el('g', { transform: 'scale(0.072)' }, g);         // 2.5D: silhouette, 100 units tall
+    el('rect', { x: -28, y: -100, width: 56, height: 100, fill: 'transparent' }, iso);   // hit area
+    const body = el('path', { d: 'M-15,-76 L15,-76 L19,-40 L11,-40 L13,-2 L4,-2 L1,-36 L-1,-36 L-4,-2 L-13,-2 L-11,-40 L-19,-40 Z' }, iso);
+    const head = el('circle', { cx: 0, cy: -88, r: 11 }, iso);
+    const arms = el('path', { d: 'M-15,-74 L-27,-46 L-21,-43 L-11,-62 M15,-74 L27,-46 L21,-43 L11,-62', fill: 'none', 'stroke-width': 7, 'stroke-linecap': 'round', 'stroke-linejoin': 'round' }, iso);
+    const inum = el('text', { x: 0, y: -52, 'font-size': 18 }, iso);
+    const ilbl = el('text', { x: 0, y: -104, class: 'lbl5' }, iso);
     g.addEventListener('pointerdown', (ev) => startDrag(ev, pl.player_id, g));
     g.addEventListener('pointermove', (ev) => onDrag(ev, pl.player_id));
     g.addEventListener('pointerup', (ev) => endDrag(ev, pl.player_id, g));
     g.addEventListener('pointercancel', (ev) => endDrag(ev, pl.player_id, g));
-    nodes.set(pl.player_id, { g: g, circle: circle, num: num, lbl: lbl });
+    nodes.set(pl.player_id, { g: g, flat: flat, iso: iso, circle: circle, num: num, lbl: lbl, shadow: shadow, ring: ring, body: body, head: head, arms: arms, inum: inum, ilbl: ilbl });
   }
-  ballEl = el('circle', { r: 0.8, fill: '#f08a24', stroke: '#7a3b00', 'stroke-width': 0.2, 'pointer-events': 'none' }, svg);
+  ballEl = el('circle', { r: 0.8, fill: '#f08a24', stroke: '#7a3b00', 'stroke-width': 0.2, 'pointer-events': 'none' }, figures);
+  setView(view);
 }
 function jersey(pl) { return pl.jersey !== null && pl.jersey !== undefined ? String(pl.jersey) : String(pl.player_id).slice(-2); }
 
 function place(id, x, y) {
   const n = nodes.get(id);
-  if (n) n.g.setAttribute('transform', 'translate(' + x + ' ' + (-y) + ')');
+  if (!n) return;
+  const u = project(x, y);
+  n.g.setAttribute('transform', 'translate(' + u[0] + ' ' + u[1] + ')');   // figure: screen space
+  for (const e of [n.shadow, n.ring]) { e.setAttribute('cx', x); e.setAttribute('cy', -y); }   // ground: feet
 }
 function currentPos(pl) {
   if (dragId === pl.player_id && moves.has(pl.player_id)) return moves.get(pl.player_id);
@@ -205,7 +248,7 @@ function render() {
 }
 function drawBoard(p) {
   const optBy = new Map(p.options.map((o) => [o.player_id, o]));
-  const pos = new Map();
+  const pos = new Map(), iso = view !== '2D';
   for (const pl of p.players) {
     const n = nodes.get(pl.player_id), o = optBy.get(pl.player_id), q = currentPos(pl);
     pos.set(pl.player_id, q);
@@ -215,16 +258,30 @@ function drawBoard(p) {
       const v = o ? viridis(o.adjusted_value) : { css: '#ccc', t: 0 };
       fill = v.css; txt = v.t > 0.6 ? '#111' : '#fff';
     }
+    const moved = pl.moved || moves.has(pl.player_id), val = pl.side === 'offense' && o ? f(o.adjusted_value, 2) : '';
     n.circle.setAttribute('fill', fill);
     n.circle.setAttribute('stroke', pl.is_shooter ? '#000' : '#333');
     n.circle.setAttribute('stroke-width', pl.is_shooter ? 0.55 : 0.2);
-    n.circle.setAttribute('stroke-dasharray', pl.moved || moves.has(pl.player_id) ? '0.5 0.35' : '');
+    n.circle.setAttribute('stroke-dasharray', moved ? '0.5 0.35' : '');
     n.num.setAttribute('fill', txt);
     n.num.textContent = jersey(pl);
     n.num.classList.toggle('fb', pl.jersey === null || pl.jersey === undefined);
     n.lbl.setAttribute('y', q.y < -22 ? -(R + 0.6) : R + 1.5);   // keep the label off the sideline
-    n.lbl.textContent = pl.side === 'offense' && o ? f(o.adjusted_value, 2) : '';
+    n.lbl.textContent = val;
+    n.body.setAttribute('fill', fill); n.head.setAttribute('fill', fill); n.arms.setAttribute('stroke', fill);
+    for (const e of [n.body, n.head]) {
+      e.setAttribute('stroke', pl.is_shooter ? '#000' : '#333');
+      e.setAttribute('stroke-width', pl.is_shooter ? 3 : 1.2);
+    }
+    n.inum.setAttribute('fill', txt); n.inum.textContent = jersey(pl);
+    n.inum.classList.toggle('fb', pl.jersey === null || pl.jersey === undefined);
+    n.ilbl.textContent = val;
+    n.ring.setAttribute('display', moved ? '' : 'none');
     n.g.classList.toggle('drag', dragId === pl.player_id);
+  }
+  if (iso && dragId === null) {   // far players first; re-parenting the dragged node would drop its pointer capture
+    const order = p.players.map((pl) => ({ n: nodes.get(pl.player_id), x: currentPos(pl).x })).sort((a, b) => b.x - a.x);
+    for (const e of order) figures.appendChild(e.n.g);
   }
   const s = pos.get(p.shooter_id);
   const alt = p.best_alt_player_id === null || p.best_alt_player_id === undefined ? null : pos.get(p.best_alt_player_id);
@@ -234,8 +291,11 @@ function drawBoard(p) {
     arrow.setAttribute('x2', alt.x - dx / d * (R + 0.4)); arrow.setAttribute('y2', -(alt.y - dy / d * (R + 0.4)));
     arrow.setAttribute('visibility', d > 2 * R ? 'visible' : 'hidden');
   } else arrow.setAttribute('visibility', 'hidden');
-  if (s) { ballEl.setAttribute('cx', s.x + 1.2); ballEl.setAttribute('cy', -(s.y - 1.2)); }
-  svg.appendChild(ballEl);
+  if (s) {
+    const b = view === '2D' ? [s.x + 1.2, -(s.y - 1.2)] : project(s.x, s.y);
+    ballEl.setAttribute('cx', view === '2D' ? b[0] : b[0] + 1.4); ballEl.setAttribute('cy', view === '2D' ? b[1] : b[1] - 4.6);
+  }
+  figures.appendChild(ballEl);
   return optBy;
 }
 
@@ -293,7 +353,7 @@ function renderHeadline() {
 /* ---------- drag, debounce, evaluate ---------- */
 function toFeet(ev) {
   const pt = svg.createSVGPoint(); pt.x = ev.clientX; pt.y = ev.clientY;
-  const q = pt.matrixTransform(svg.getScreenCTM().inverse());
+  const q = pt.matrixTransform(ground.getScreenCTM().inverse());
   return { x: q.x, y: -q.y };
 }
 function clampToCourt(q) {   // the server clamps too: a backcourt player snaps to the half line
@@ -388,11 +448,18 @@ async function start() {
     shots = await parse(await fetch('/api/shots'));
   } catch (e) { setStatus('Could not load court or shots: ' + e.message); return; }
   initSvg();
+  try { view = localStorage.getItem('ventaja.board.view') === '2D' ? '2D' : '2.5D'; } catch (e) { view = '2.5D'; }
+  setView(view);
   if (!shots.length) { setStatus('No valued shots to show.', true); return; }
   const games = Array.from(new Set(shots.map((s) => s.game_id)));
   for (const g of games) { const o = document.createElement('option'); o.value = String(g); o.textContent = 'game ' + g; $('gameSel').appendChild(o); }
   $('gameSel').addEventListener('change', fillShots);
   $('shotSel').addEventListener('change', (ev) => selectShot(ev.target.value));
+  $('viewSel').addEventListener('change', (ev) => {
+    setView(ev.target.value);
+    try { localStorage.setItem('ventaja.board.view', view); } catch (e) { /* storage may be blocked */ }
+    render();
+  });
   $('resetBtn').addEventListener('click', reset);
   $('undoBtn').addEventListener('click', undo);
   await fillShots();

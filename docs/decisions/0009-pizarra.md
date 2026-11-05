@@ -48,3 +48,12 @@ Orden de regeneración: `model train` (modelo y priors), `decisions build`, `cur
 - *Ampliar las tablas de opciones con defensores y velocidades.* Mezcla dos artefactos con ciclos distintos y no sirve para reconstruir el `Snapshot` completo.
 - *Un frontend con framework (React, Vite).* Añade un build y dependencias a una herramienta de inspección; el spec lo excluye como no-objetivo.
 - *Derivar los priors en cada arranque.* Necesita los agregados de temporada, que no se empaquetan.
+
+## Enmienda 2026-11-05: vista 2.5D
+
+La pizarra dibuja por defecto una vista 2.5D del medio campo, con un selector 2D / 2.5D (se recuerda en `localStorage`).
+
+- **Proyección isométrica paralela, no perspectiva.** Las distancias y el arrastre siguen siendo exactos: una matriz afín fija convierte pies en pantalla y su inversa devuelve el puntero a pies.
+- **Dos grupos SVG.** `#ground` contiene todo lo que está en el suelo (pista, flecha, sombra y anillo de movido), siempre en pies y con una sola matriz (`matrix(0.25 -0.55 -1 0 ...)` en 2.5D, identidad en 2D). `#figures` contiene las siluetas y el balón en espacio de pantalla, colocados con la misma proyección y ordenados por profundidad. El arrastre usa `ground.getScreenCTM().inverse()`, así que la geometría enviada a la API no cambia.
+- **Las siluetas son una convención visual.** La altura no es un dato: el tracking es 2D, y la leyenda lo dice.
+- **Sin dependencias.** La página sigue siendo un único HTML con SVG y JS sin build, de 600 líneas o menos.
