@@ -2,7 +2,7 @@
 
 import shutil
 from pathlib import Path
-from typing import Any
+from typing import Any, get_args
 
 import polars as pl
 import pydantic
@@ -14,7 +14,15 @@ from ventaja.data.people import load_people
 from ventaja.errors import AmbiguousQueryError, DataNotFoundError, VentajaError
 from ventaja.geometry.court import HALF_LENGTH
 from ventaja.mcp.models import Move
-from ventaja.mcp.service import VERDICTS, AskService
+from ventaja.mcp.service import (
+    CLOCK_BANDS,
+    RANK_KEYS,
+    VERDICTS,
+    AskService,
+    ClockBandName,
+    RankKey,
+    VerdictName,
+)
 from ventaja.value.params import (
     BOARD_MAX_MOVES,
     MCP_DEFAULT_LIMIT,
@@ -187,6 +195,51 @@ def test_what_if_without_moves_reproduces_the_decision(service: AskService) -> N
     result = service.what_if("shot-114243-1-0", [])
     assert result.after.cost == pytest.approx(result.before.cost, abs=1e-3)
     assert result.delta_cost == 0.0 and not any(p.moved for p in result.players)
+    row = service.decisions.filter(pl.col("shot_id") == "shot-114243-1-0").row(0, named=True)
+    assert result.after.cost == pytest.approx(row["cost"], abs=1e-3)
+    assert result.after.shot_value == pytest.approx(row["shot_value"], abs=1e-3)
+    assert result.after.best_alternative is not None
+    assert result.after.best_alternative.value == pytest.approx(row["best_alt_value"], abs=1e-3)
+
+
+def _excluded_id(service: AskService) -> str:
+    return str(service.decisions.filter(pl.col("rule") == "excluded")["shot_id"][0])
+
+
+def test_what_if_says_why_an_unknown_or_excluded_shot_is_refused(service: AskService) -> None:
+    with pytest.raises(DataNotFoundError, match="shot shot-1-9-9 not found in the decisions"):
+        service.what_if("shot-1-9-9", [])
+    excluded = _excluded_id(service)
+    with pytest.raises(VentajaError, match=f"shot {excluded} is excluded: "):
+        service.what_if(excluded, [])
+    with pytest.raises(VentajaError, match="is excluded: "):
+        service.explain_shot(excluded)
+
+
+def test_what_if_checks_the_move_count_before_the_shot(service: AskService) -> None:
+    moves = [Move(player="1", x=0.0, y=0.0)] * (BOARD_MAX_MOVES + 1)
+    with pytest.raises(ValueError, match=f"at most {BOARD_MAX_MOVES} moves"):
+        service.what_if("shot-1-9-9", moves)
+
+
+@pytest.mark.parametrize("verdict", VERDICTS)
+def test_explain_shot_handles_every_verdict(service: AskService, verdict: str) -> None:
+    shot_id = service.summaries.filter(pl.col("verdict") == verdict)["shot_id"][0]
+    curve = service.explain_shot(shot_id).curve
+    assert curve is not None and curve.verdict == verdict
+
+
+def test_explain_shot_covers_every_valued_shot(service: AskService) -> None:
+    valued = service.decisions.filter(pl.col("rule") != "excluded")["shot_id"].to_list()
+    assert len(valued) == 1351
+    for shot_id in valued:
+        assert service.explain_shot(shot_id).shot_id == shot_id
+
+
+def test_schema_literals_match_the_tuples() -> None:
+    assert get_args(ClockBandName) == CLOCK_BANDS
+    assert get_args(RankKey) == RANK_KEYS
+    assert get_args(VerdictName) == VERDICTS
 
 
 def test_what_if_moves_the_shooter_and_clamps(service: AskService) -> None:

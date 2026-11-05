@@ -25,7 +25,15 @@ from ventaja.mcp.models import (
     ShotList,
     WhatIf,
 )
-from ventaja.mcp.service import CLOCK_BANDS, RANK_KEYS, VERDICTS, AskService
+from ventaja.mcp.service import (
+    CLOCK_BANDS,
+    RANK_KEYS,
+    VERDICTS,
+    AskService,
+    ClockBandName,
+    RankKey,
+    VerdictName,
+)
 from ventaja.value.model import ValueModel
 from ventaja.value.params import (
     ADVANTAGE_TOLERANCE,
@@ -72,7 +80,7 @@ _Player = Annotated[
 _PlayerFilter = Annotated[str | None, Field(description="Shooter, by id or name fragment")]
 _Team = Annotated[str | None, Field(description="Team id or name fragment")]
 _Clock = Annotated[
-    str | None,
+    ClockBandName | None,
     Field(description=f"Shot-clock band of the decision: {', '.join(CLOCK_BANDS)} (seconds left)"),
 ]
 _ShotId = Annotated[str, Field(description="Shot id such as shot-114243-1-0 (from find_shots)")]
@@ -80,11 +88,22 @@ _Limit = Annotated[
     int,
     Field(ge=1, le=MCP_MAX_LIMIT, description=f"Most rows to return (default {MCP_DEFAULT_LIMIT})"),
 ]
-_MinShots = Annotated[int, Field(ge=1, description="Fewest readable shots a player needs")]
-_By = Annotated[str, Field(description=f"Ranking key, highest first: {', '.join(RANK_KEYS)}")]
+_MinShots = Annotated[
+    int,
+    Field(
+        ge=1,
+        description=(
+            "Fewest valued shots (n_shots; in the clock band when clock is set) a player needs "
+            "to be ranked. The glossary's caution threshold counts readable shots instead."
+        ),
+    ),
+]
+_By = Annotated[RankKey, Field(description=f"Ranking key, highest first: {', '.join(RANK_KEYS)}")]
 _Opponent = Annotated[str | None, Field(description="Opponent team id or name fragment")]
 _Game = Annotated[int | None, Field(description="Game id from list_games")]
-_Verdict = Annotated[str | None, Field(description=f"Advantage verdict: {', '.join(VERDICTS)}")]
+_Verdict = Annotated[
+    VerdictName | None, Field(description=f"Advantage verdict: {', '.join(VERDICTS)}")
+]
 _GoodRead = Annotated[bool | None, Field(description="True keeps good reads, false the others")]
 _MinCost = Annotated[float | None, Field(description="Fewest points of decision cost")]
 _Moves = Annotated[
@@ -218,14 +237,21 @@ def create_server(
     service = AskService(settings, model=model, priors=priors)
     server = MCPServer("ventaja", instructions=INSTRUCTIONS)
 
-    @server.tool(description="List the games with decisions: date, teams, score and valued shots.")
+    @server.tool(
+        description=(
+            "List the games with decisions: date, teams, score and valued shots. Call it first "
+            "to know which games and teams exist; it does not rank or explain anything."
+        )
+    )
     def list_games() -> list[GameInfo]:
         return cast(list[GameInfo], _run(service, "list_games", {}))
 
     @server.tool(
         description=(
-            "Rank players by decision quality (highest first), optionally of one team or one "
-            "shot-clock band. Includes the league row for comparison."
+            "Rank players by a decision metric, highest first (so good_read_share lists the best "
+            "readers first; there is no ascending option), with the league row for comparison. "
+            'clock only works with by="mean_cost". min_shots defaults to 1: check each '
+            "player's n before stating a tendency."
         )
     )
     def rank_players(
@@ -244,12 +270,22 @@ def create_server(
             ),
         )
 
-    @server.tool(description="The decision card of one player with the league row for reference.")
+    @server.tool(
+        description=(
+            "The decision card of one player with the league row for reference. It needs a "
+            "unique name or id (an ambiguous name returns the candidates); it does not list "
+            "his shots."
+        )
+    )
     def player_profile(player: _Player) -> PlayerProfile:
         return cast(PlayerProfile, _run(service, "player_profile", {"player": player}))
 
     @server.tool(
-        description="Find valued shots matching every given filter, costliest decision first."
+        description=(
+            "Find valued shots matching every given filter, costliest decision first. team is "
+            "the shooter's team and opponent the other team of that game. It does not explain "
+            "a shot: use explain_shot on a returned shot_id."
+        )
     )
     def find_shots(
         player: _PlayerFilter = None,
@@ -277,15 +313,20 @@ def create_server(
 
     @server.tool(
         description=(
-            "Explain one valued shot: the options at the decision frame, the best alternative, "
-            "the advantage curve and the command that renders its clip."
+            "Explain one valued shot in full: the options at the decision frame, the best "
+            "alternative, the advantage curve and the command that renders its clip. It does "
+            "not render the clip, it returns the command."
         )
     )
     def explain_shot(shot_id: _ShotId) -> ShotExplanation:
         return cast(ShotExplanation, _run(service, "explain_shot", {"shot_id": shot_id}))
 
     @server.tool(
-        description="Value a shot again after moving players on its decision frame (what if)."
+        description=(
+            "Value a shot again after moving players on its decision frame (what if). The "
+            "defence does not react and moved players have zero velocity; it does not "
+            "recompute the advantage curve."
+        )
     )
     def what_if(
         shot_id: _ShotId,

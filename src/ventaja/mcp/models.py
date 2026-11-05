@@ -188,10 +188,11 @@ class CurveSummaryOut(_Frozen):
     """The advantage window of the possession: verdict, size and who held the ball."""
 
     verdict: str
-    advantage_seconds: float
-    release_lag_seconds: float
+    advantage_seconds: float | None
+    release_lag_seconds: float | None
+    held_to_decision: bool | None
     advantage_holder: PlayerRef | None
-    headline: str
+    headline: str | None
 
 
 class ShotExplanation(_Frozen):

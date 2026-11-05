@@ -4,7 +4,7 @@ It loads the decisions, curve summaries, player and team cards, games and people
 answers games, rankings and player profiles with ids that always travel with their names.
 """
 
-from typing import Any, overload
+from typing import Any, Literal, overload
 
 import polars as pl
 
@@ -65,11 +65,23 @@ from ventaja.value.params import (
 )
 from ventaja.value.priors import Priors
 
-__all__ = ["CLOCK_BANDS", "RANK_KEYS", "VERDICTS", "AskService"]
+__all__ = [
+    "CLOCK_BANDS",
+    "RANK_KEYS",
+    "VERDICTS",
+    "AskService",
+    "ClockBandName",
+    "RankKey",
+    "VerdictName",
+]
 
 RANK_KEYS = ("mean_cost", "good_read_share", "late_held_share")
 CLOCK_BANDS = tuple(label for label, _, _ in CLOCK_BUCKETS)
 VERDICTS = ("late", "during", "none", "no_window")
+# The schema-facing twins of the tuples above (a test keeps them identical).
+RankKey = Literal["mean_cost", "good_read_share", "late_held_share"]
+ClockBandName = Literal["24-14", "14-6", "6-0"]
+VerdictName = Literal["late", "during", "none", "no_window"]
 _MAX_CANDIDATES = 20
 
 
@@ -286,7 +298,13 @@ class AskService:
 
     def player_profile(self, player: str) -> PlayerProfile:
         """The card of one player (by id or name fragment) with the league for reference."""
-        card = card_of(self.resolve_player(player), self.players)
+        player_id = self.resolve_player(player)
+        if self.players.filter(pl.col("player_id") == player_id).height == 0:
+            name = self.people.names.get(player_id)
+            raise DataNotFoundError(
+                f"player {player_id} ({name}) has no valued shots in the ten tracked games"
+            )
+        card = card_of(player_id, self.players)
         league = self.players.filter(pl.col("player_id") == LEAGUE_ID).row(0, named=True)
         ref = self._player_ref(card.player_id, card.name)
         if card.team_id is not None:
@@ -466,17 +484,22 @@ class AskService:
             )
         return ShotList(total=shots.height, shots=out)
 
-    def explain_shot(self, shot_id: str) -> ShotExplanation:
-        """The options at the decision frame of one valued shot, with its curve and clip command.
-
-        Raises ``DataNotFoundError`` for an unknown shot and ``VentajaError`` for an excluded one.
-        """
+    def _valued_row(self, shot_id: str) -> dict[str, Any]:
+        """The decisions row of a valued shot; says why when the shot is unknown or excluded."""
         hit = self.decisions.filter(pl.col("shot_id") == shot_id)
         if hit.height == 0:
             raise DataNotFoundError(f"shot {shot_id} not found in the decisions tables")
         row = hit.row(0, named=True)
         if row["rule"] == "excluded":
             raise VentajaError(f"shot {shot_id} is excluded: {row['reason']}")
+        return row
+
+    def explain_shot(self, shot_id: str) -> ShotExplanation:
+        """The options at the decision frame of one valued shot, with its curve and clip command.
+
+        Raises ``DataNotFoundError`` for an unknown shot and ``VentajaError`` for an excluded one.
+        """
+        row = self._valued_row(shot_id)
         game_id = row["game_id"]
         decision = decision_from_tables(
             shot_id, self.decisions, load_decision_options(game_id, self.settings)
@@ -492,6 +515,7 @@ class AskService:
                 verdict=c["verdict"],
                 advantage_seconds=_round(c["advantage_seconds"]),
                 release_lag_seconds=_round(c["release_lag_seconds"]),
+                held_to_decision=c["held_to_decision"],
                 advantage_holder=None if holder is None else self._player_ref(holder),
                 headline=c["headline_en"],
             )
@@ -523,6 +547,7 @@ class AskService:
         """
         if len(moves) > BOARD_MAX_MOVES:
             raise ValueError(f"at most {BOARD_MAX_MOVES} moves")
+        self._valued_row(shot_id)
         if self._board is None:
             self._board = Board(self.settings, model=self.model, priors=self.priors)
         board = self._board

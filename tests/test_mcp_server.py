@@ -6,6 +6,7 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
+import polars as pl
 import pytest
 from mcp.client import Client
 from mcp.server.mcpserver import MCPServer
@@ -91,15 +92,23 @@ def test_every_tool_answers_over_the_protocol(server: MCPServer) -> None:
         checks[name](result.structured_content)
 
 
-def test_errors_are_tool_errors_not_crashes(server: MCPServer) -> None:
+def test_errors_are_tool_errors_not_crashes(server: MCPServer, settings: Settings) -> None:
     ambiguous = asyncio.run(_call(server, "player_profile", {"player": "a"}))
     assert ambiguous.is_error and "players match" in ambiguous.content[0].text  # type: ignore[union-attr]
     bad_limit = asyncio.run(_call(server, "find_shots", {"limit": MCP_MAX_LIMIT + 1}))
     assert bad_limit.is_error
-    excluded = asyncio.run(_call(server, "explain_shot", {"shot_id": "shot-114243-9-9"}))
-    assert excluded.is_error and "shot-114243-9-9" in excluded.content[0].text  # type: ignore[union-attr]
+    unknown = asyncio.run(_call(server, "explain_shot", {"shot_id": "shot-114243-9-9"}))
+    assert unknown.is_error and "shot-114243-9-9" in unknown.content[0].text  # type: ignore[union-attr]
+    excluded_id = str(
+        AskService(settings).decisions.filter(pl.col("rule") == "excluded")["shot_id"][0]
+    )
+    excluded = asyncio.run(_call(server, "explain_shot", {"shot_id": excluded_id}))
+    assert excluded.is_error and "is excluded" in excluded.content[0].text  # type: ignore[union-attr]
+    # the schema enum rejects it before the service; the service check serves the CLI path
+    with pytest.raises(ValueError, match="clock must be one of"):
+        AskService(settings).rank_players(clock="9-9")
     bad_arg = asyncio.run(_call(server, "rank_players", {"clock": "9-9"}))
-    assert bad_arg.is_error and "clock must be one of" in bad_arg.content[0].text  # type: ignore[union-attr]
+    assert bad_arg.is_error and "Input should be" in bad_arg.content[0].text  # type: ignore[union-attr]
 
 
 def test_glossary_resource_is_rendered_from_params(server: MCPServer) -> None:

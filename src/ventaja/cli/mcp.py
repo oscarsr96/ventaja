@@ -49,7 +49,8 @@ def call(
         typer.echo(f"error: unknown tool {tool!r}; choose one of {', '.join(TOOL_NAMES)}", err=True)
         raise typer.Exit(code=2)
     arguments = _arguments(args)
-    service = AskService(settings_or_exit())
+    settings = settings_or_exit()
+    service = run_or_exit(lambda: AskService(settings))
     try:
         result = call_tool(service, tool, arguments)
     except (VentajaError, ValueError) as exc:  # pydantic's ValidationError is a ValueError
@@ -66,7 +67,8 @@ def tools() -> None:
 
     from ventaja.mcp.server import create_server
 
-    server = create_server(settings_or_exit())
+    settings = settings_or_exit()
+    server = run_or_exit(lambda: create_server(settings))
 
     async def _list() -> list[dict[str, Any]]:
         async with Client(server) as client:
