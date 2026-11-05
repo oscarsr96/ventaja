@@ -47,6 +47,11 @@ jobs:
       # Player cards read the versioned artifacts/players.parquet; no build needed.
       - run: uv run ventaja player show 58474
       - run: uv run ventaja player rank --n 5
+      # MCP reads the packaged artifacts: an empty build dir keeps it off the one-game build above.
+      - run: VENTAJA_BUILD_DIR=/tmp/empty-build uv run ventaja mcp call list_games
+      - run: |
+          VENTAJA_BUILD_DIR=/tmp/empty-build uv run ventaja mcp call explain_shot '{"shot_id": "shot-114243-1-0"}'
+      - run: VENTAJA_BUILD_DIR=/tmp/empty-build uv run ventaja mcp tools
 
   pipeline-all:
     if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'

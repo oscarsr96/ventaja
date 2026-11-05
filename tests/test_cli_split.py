@@ -14,6 +14,7 @@ EXPECTED_COMMANDS = {
     "review": {"sample"},
     "reel": {"rankings", "build"},
     "player": {"build", "show", "rank", "team"},
+    "mcp": {"serve", "call", "tools"},
 }
 EXPECTED_TOP_LEVEL = {"sql", "snapshot", "clip", "board"}
 
@@ -30,6 +31,7 @@ ROOT_HELP = [
     "frames Build the decision frames the whiteboard draws.",
     "review Prepare the live review of decisions.",
     "reel Rank decisions and build the reel of clips.",
+    "mcp Serve ventaja as MCP tools, or call one tool from the shell.",
 ]
 DECISIONS_HELP = [
     "build Value every shot against its pass options and write the decisions tables.",
