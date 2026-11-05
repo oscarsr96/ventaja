@@ -31,7 +31,7 @@
   #moveNote { grid-column:1/-1; background:#fff4d6; border:1px solid #e8c55b; border-radius:6px; padding:4px 8px; font-weight:600; }
   #headline { margin:0; font-size:15px; }
   #courtWrap { padding:6px; }
-  #court { width:100%; aspect-ratio:74/40; max-height:calc(100vh - 190px); display:block; margin:0 auto; touch-action:none; user-select:none; }
+  #court { width:100%; aspect-ratio:74/42.5; max-height:calc(100vh - 190px); display:block; margin:0 auto; touch-action:none; user-select:none; }
   .player { cursor:grab; } .player.drag { cursor:grabbing; }
   .player text { pointer-events:none; text-anchor:middle; font-weight:700; }
   .lbl { font-size:1.3px; font-weight:600; fill:#1b1f24; paint-order:stroke; stroke:#f2d9a8; stroke-width:.35px; }
@@ -87,7 +87,7 @@ const V_LO = 0.6, V_HI = 1.5;        // fixed colour scale, same as the GIFs
 const STOPS = [[68,1,84],[59,82,139],[33,145,140],[94,201,98],[253,231,37]]; // viridis, 5 stops
 const DEBOUNCE_MS = 150;
 const K = 0.25, DEPTH = 0.55, U0 = 0, V0 = 0;   // 2.5D: oblique skew, depth compression, offsets (feet)
-const VIEWS = { '2D': '-49 -28.5 61 57', '2.5D': '-30 -35 74 40' };
+const VIEWS = { '2D': '-49 -28.5 61 57', '2.5D': '-30.15 -40.5 74 42.5' };
 
 const $ = (id) => document.getElementById(id);
 const svg = $('court');
@@ -214,14 +214,16 @@ function buildPlayers(p) {
     el('rect', { x: -28, y: -100, width: 56, height: 100, fill: 'transparent' }, iso);   // hit area
     const body = el('path', { d: 'M-15,-76 L15,-76 L19,-40 L11,-40 L13,-2 L4,-2 L1,-36 L-1,-36 L-4,-2 L-13,-2 L-11,-40 L-19,-40 Z' }, iso);
     const head = el('circle', { cx: 0, cy: -88, r: 11 }, iso);
-    const arms = el('path', { d: 'M-15,-74 L-27,-46 L-21,-43 L-11,-62 M15,-74 L27,-46 L21,-43 L11,-62', fill: 'none', 'stroke-width': 7, 'stroke-linecap': 'round', 'stroke-linejoin': 'round' }, iso);
+    const armD = 'M-15,-74 L-27,-46 L-21,-43 L-11,-62 M15,-74 L27,-46 L21,-43 L11,-62', armA = { d: armD, fill: 'none', 'stroke-linecap': 'round', 'stroke-linejoin': 'round' };
+    const armsOut = el('path', armA, iso);                          // outline colour, wider
+    const arms = el('path', Object.assign({ 'stroke-width': 7 }, armA), iso);   // fill colour on top
     const inum = el('text', { x: 0, y: -52, 'font-size': 18 }, iso);
     const ilbl = el('text', { x: 0, y: -104, class: 'lbl5' }, iso);
     g.addEventListener('pointerdown', (ev) => startDrag(ev, pl.player_id, g));
     g.addEventListener('pointermove', (ev) => onDrag(ev, pl.player_id));
     g.addEventListener('pointerup', (ev) => endDrag(ev, pl.player_id, g));
     g.addEventListener('pointercancel', (ev) => endDrag(ev, pl.player_id, g));
-    nodes.set(pl.player_id, { g: g, flat: flat, iso: iso, circle: circle, num: num, lbl: lbl, shadow: shadow, ring: ring, body: body, head: head, arms: arms, inum: inum, ilbl: ilbl });
+    nodes.set(pl.player_id, { g: g, flat: flat, iso: iso, circle: circle, num: num, lbl: lbl, shadow: shadow, ring: ring, body: body, head: head, arms: arms, armsOut: armsOut, inum: inum, ilbl: ilbl });
   }
   ballEl = el('circle', { r: 0.8, fill: '#f08a24', stroke: '#7a3b00', 'stroke-width': 0.2, 'pointer-events': 'none' }, figures);
   setView(view);
@@ -269,6 +271,8 @@ function drawBoard(p) {
     n.lbl.setAttribute('y', q.y < -22 ? -(R + 0.6) : R + 1.5);   // keep the label off the sideline
     n.lbl.textContent = val;
     n.body.setAttribute('fill', fill); n.head.setAttribute('fill', fill); n.arms.setAttribute('stroke', fill);
+    n.armsOut.setAttribute('stroke', pl.is_shooter ? '#000' : '#333');
+    n.armsOut.setAttribute('stroke-width', pl.is_shooter ? 13 : 9.4);   // 7 + 2 * outline width
     for (const e of [n.body, n.head]) {
       e.setAttribute('stroke', pl.is_shooter ? '#000' : '#333');
       e.setAttribute('stroke-width', pl.is_shooter ? 3 : 1.2);
