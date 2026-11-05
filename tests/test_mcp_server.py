@@ -1,6 +1,8 @@
 """The MCP server over the in-memory protocol: tools, errors and the glossary resource."""
 
 import asyncio
+import inspect
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
@@ -11,6 +13,7 @@ from mcp.types import CallToolResult
 
 from ventaja.config import Settings
 from ventaja.mcp.server import (
+    _DISPATCH,
     GLOSSARY_URI,
     TOOL_NAMES,
     call_tool,
@@ -19,6 +22,11 @@ from ventaja.mcp.server import (
 )
 from ventaja.mcp.service import AskService
 from ventaja.value.params import MCP_MAX_LIMIT, PROFILE_MIN_SHOTS
+
+
+def _expect(ok: object) -> None:
+    assert ok
+
 
 SHOT = "shot-114243-1-0"
 
@@ -66,10 +74,21 @@ def test_every_tool_answers_over_the_protocol(server: MCPServer) -> None:
         "what_if": {"shot_id": SHOT, "moves": [{"player": shooter, "x": -42.0, "y": 0.0}]},
     }
     assert tuple(cases) == TOOL_NAMES
+    checks: dict[str, Callable[[dict[str, Any]], None]] = {
+        "list_games": lambda c: _expect(len(c["result"]) == 10),
+        "rank_players": lambda c: _expect(c["by"] == "mean_cost" and c["clock"] == "6-0"),
+        "player_profile": lambda c: _expect(c["player"]["player_id"] == 58474),
+        "find_shots": lambda c: _expect(
+            c["shots"] and all(s["game_id"] == 191313 for s in c["shots"])
+        ),
+        "explain_shot": lambda c: _expect(c["shot_id"] == SHOT),
+        "what_if": lambda c: _expect(c["shot_id"] == SHOT),
+    }
     for name, args in cases.items():
         result = asyncio.run(_call(server, name, args))
         assert not result.is_error, (name, result.content)
         assert result.structured_content, name
+        checks[name](result.structured_content)
 
 
 def test_errors_are_tool_errors_not_crashes(server: MCPServer) -> None:
@@ -108,3 +127,15 @@ def test_call_tool_validates_and_dispatches(settings: Settings) -> None:
 
 def test_server_from_clean_settings_needs_nothing_else(tmp_path: Path) -> None:
     create_server(Settings(data_dir=tmp_path / "raw", build_dir=tmp_path / "build"))
+
+
+def test_wrappers_and_dispatcher_share_one_signature(server: MCPServer) -> None:
+    assert tuple(_DISPATCH) == TOOL_NAMES
+    for name in TOOL_NAMES:
+        wrapper = inspect.signature(server._tool_manager.get_tool(name).fn)  # type: ignore[union-attr]
+        dispatched = inspect.signature(_DISPATCH[name])
+        params = list(dispatched.parameters.values())[1:]  # drop ``service``
+        assert [(p.name, p.default, p.annotation) for p in wrapper.parameters.values()] == [
+            (p.name, p.default, p.annotation) for p in params
+        ], name
+        assert wrapper.return_annotation == dispatched.return_annotation, name

@@ -30,11 +30,18 @@ from ventaja.value.model import ValueModel
 from ventaja.value.params import (
     ADVANTAGE_TOLERANCE,
     BOARD_MAX_MOVES,
+    CURVE_MIN_ROWS,
+    GATHER_FRAMES,
+    LANE_BLOCKED_FACTOR,
     LATE_MIN_CLOCK,
     MCP_DEFAULT_LIMIT,
     MCP_MAX_LIMIT,
     MIN_RANK_CONFIDENCE,
+    PASS_DISTANCE_HARD,
+    PASS_DISTANCE_SOFT,
     PROFILE_MIN_SHOTS,
+    SHOT_CLOCK_EXPIRY_LOOKBACK,
+    SHOT_CLOCK_MIN_PASS,
 )
 from ventaja.value.priors import Priors
 
@@ -73,8 +80,6 @@ _Limit = Annotated[
     int,
     Field(ge=1, le=MCP_MAX_LIMIT, description=f"Most rows to return (default {MCP_DEFAULT_LIMIT})"),
 ]
-
-
 _MinShots = Annotated[int, Field(ge=1, description="Fewest readable shots a player needs")]
 _By = Annotated[str, Field(description=f"Ranking key, highest first: {', '.join(RANK_KEYS)}")]
 _Opponent = Annotated[str | None, Field(description="Opponent team id or name fragment")]
@@ -94,7 +99,8 @@ _Moves = Annotated[
 _STRICT = ConfigDict(extra="forbid", arbitrary_types_allowed=True)
 
 
-# Parameter contracts of the tools: the MCP wrappers below repeat these exact annotations.
+# Parameter contracts of the tools. The MCP wrappers in ``create_server`` use the same aliases
+# and defaults (the SDK reads their signature); a test checks the two stay identical.
 @validate_call(config=_STRICT)
 def _list_games(service: AskService) -> list[GameInfo]:
     return service.list_games()
@@ -106,9 +112,7 @@ def _rank_players(
     team: _Team = None,
     clock: _Clock = None,
     min_shots: _MinShots = 1,
-    by: Annotated[
-        str, Field(description=f"Ranking key, highest first: {', '.join(RANK_KEYS)}")
-    ] = "mean_cost",
+    by: _By = "mean_cost",
     limit: _Limit = MCP_DEFAULT_LIMIT,
 ) -> Ranking:
     return service.rank_players(team=team, clock=clock, min_shots=min_shots, by=by, limit=limit)
@@ -185,6 +189,13 @@ def render_glossary() -> str:
     text = files("ventaja.mcp").joinpath("glossary.md").read_text(encoding="utf-8")
     return Template(text).substitute(
         PROFILE_MIN_SHOTS=PROFILE_MIN_SHOTS,
+        GATHER_FRAMES=GATHER_FRAMES,
+        SHOT_CLOCK_MIN_PASS=SHOT_CLOCK_MIN_PASS,
+        PASS_DISTANCE_SOFT=PASS_DISTANCE_SOFT,
+        PASS_DISTANCE_HARD=PASS_DISTANCE_HARD,
+        LANE_BLOCKED_FACTOR=LANE_BLOCKED_FACTOR,
+        CURVE_MIN_ROWS=CURVE_MIN_ROWS,
+        SHOT_CLOCK_EXPIRY_LOOKBACK=SHOT_CLOCK_EXPIRY_LOOKBACK,
         LATE_MIN_CLOCK=LATE_MIN_CLOCK,
         CLOCK_BANDS=", ".join(CLOCK_BANDS),
         BOARD_MAX_MOVES=BOARD_MAX_MOVES,
@@ -220,12 +231,8 @@ def create_server(
     def rank_players(
         team: _Team = None,
         clock: _Clock = None,
-        min_shots: Annotated[
-            int, Field(ge=1, description="Fewest readable shots a player needs")
-        ] = 1,
-        by: Annotated[
-            str, Field(description=f"Ranking key, highest first: {', '.join(RANK_KEYS)}")
-        ] = "mean_cost",
+        min_shots: _MinShots = 1,
+        by: _By = "mean_cost",
         limit: _Limit = MCP_DEFAULT_LIMIT,
     ) -> Ranking:
         return cast(
@@ -247,16 +254,12 @@ def create_server(
     def find_shots(
         player: _PlayerFilter = None,
         team: _Team = None,
-        opponent: Annotated[
-            str | None, Field(description="Opponent team id or name fragment")
-        ] = None,
+        opponent: _Opponent = None,
         game: _Game = None,
         clock: _Clock = None,
         verdict: _Verdict = None,
         good_read: _GoodRead = None,
-        min_cost: Annotated[
-            float | None, Field(description="Fewest points of decision cost")
-        ] = None,
+        min_cost: _MinCost = None,
         limit: _Limit = MCP_DEFAULT_LIMIT,
     ) -> ShotList:
         args = {
