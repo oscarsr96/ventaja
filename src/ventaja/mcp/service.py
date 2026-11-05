@@ -8,6 +8,7 @@ from typing import Any, overload
 
 import polars as pl
 
+from ventaja.board.engine import Board
 from ventaja.config import Settings
 from ventaja.data.load import (
     curve_files,
@@ -27,13 +28,16 @@ from ventaja.decision.curve import SUMMARY_SCHEMA
 from ventaja.errors import AmbiguousQueryError, DataNotFoundError, VentajaError
 from ventaja.mcp.models import (
     Alternative,
+    AppliedMove,
     BestAlternative,
     ClockBand,
     CurveSummaryOut,
     GameInfo,
     GameSide,
     Metrics,
+    Move,
     OptionOut,
+    PlacedPlayer,
     PlayerProfile,
     PlayerRef,
     RankedPlayer,
@@ -43,12 +47,17 @@ from ventaja.mcp.models import (
     ShotSummary,
     ShotTaken,
     TeamRef,
+    Valuation,
+    WhatIf,
 )
+from ventaja.model.decision import Decision
+from ventaja.model.snapshot import PlayerPos
 from ventaja.profile.card import LEAGUE_ID, card_of, fold_name
 from ventaja.value.clock import clock_bucket_expr
 from ventaja.value.model import ValueModel
 from ventaja.value.params import (
     ALT_TYPES,
+    BOARD_MAX_MOVES,
     CLOCK_BUCKETS,
     MCP_DEFAULT_LIMIT,
     MCP_MAX_LIMIT,
@@ -109,6 +118,7 @@ class AskService:
         self.games = load_games(settings)
         self.people: People = load_people(settings)
         self._known_players = self._carded_or_rostered()
+        self._board: Board | None = None
 
     def _carded_or_rostered(self) -> set[int]:
         ids = {int(i) for i in self.players["player_id"] if i != LEAGUE_ID}
@@ -325,13 +335,47 @@ class AskService:
         ball = frames.filter(pl.col("side") == "ball").unique(subset="shot_id", keep="first")
         return dict(zip(ball["shot_id"], ball["period"], strict=True))
 
-    def _best_alternative(self, row: dict[str, Any]) -> BestAlternative | None:
-        if row["best_alt_player_id"] is None:
+    def _best_alternative(
+        self, player_id: int | None, alt_type: str | None, value: float | None
+    ) -> BestAlternative | None:
+        if player_id is None or alt_type is None or value is None:
             return None
         return BestAlternative(
-            player=self._player_ref(row["best_alt_player_id"]),
-            type=row["best_alt_type"],
-            value=_round(row["best_alt_value"]),
+            player=self._player_ref(player_id), type=alt_type, value=_round(value)
+        )
+
+    def _valuation(self, decision: Decision) -> Valuation:
+        best_id, best_type = decision.best_alt_player_id, decision.best_alt_type
+        options = [
+            OptionOut(
+                player=self._player_ref(o.player_id),
+                option_type=o.option_type,
+                zone=o.zone,
+                points=o.points,
+                proba=_round(o.proba),
+                value=_round(o.value),
+                viability=_round(o.viability),
+                adjusted_value=_round(o.adjusted_value),
+                alternative_type=o.alternative_type,
+                lane_blocked=o.lane_blocked,
+                is_shot=o.option_type == "shot",
+                is_best_alternative=(
+                    o.option_type == "pass"
+                    and best_id is not None
+                    and o.player_id == best_id
+                    and o.alternative_type == best_type
+                ),
+            )
+            for o in decision.options
+        ]
+        return Valuation(
+            shot_value=_round(decision.shot_value),
+            best_alternative=self._best_alternative(
+                decision.best_alt_player_id, decision.best_alt_type, decision.best_alt_value
+            ),
+            cost=_round(decision.cost),
+            good_read=decision.good_read,
+            options=options,
         )
 
     def find_shots(
@@ -411,7 +455,9 @@ class AskService:
                     shot_clock=_round(r["shot_clock"]),
                     shooter=self._player_ref(r["shooter_id"]),
                     shot_value=_round(r["shot_value"]),
-                    best_alternative=self._best_alternative(r),
+                    best_alternative=self._best_alternative(
+                        r["best_alt_player_id"], r["best_alt_type"], r["best_alt_value"]
+                    ),
                     cost=_round(r["cost"]),
                     good_read=r["good_read"],
                     verdict=r["verdict"],
@@ -435,29 +481,7 @@ class AskService:
         decision = decision_from_tables(
             shot_id, self.decisions, load_decision_options(game_id, self.settings)
         )
-        best_id, best_type = decision.best_alt_player_id, decision.best_alt_type
-        options = [
-            OptionOut(
-                player=self._player_ref(o.player_id),
-                option_type=o.option_type,
-                zone=o.zone,
-                points=o.points,
-                proba=_round(o.proba),
-                value=_round(o.value),
-                viability=_round(o.viability),
-                adjusted_value=_round(o.adjusted_value),
-                alternative_type=o.alternative_type,
-                lane_blocked=o.lane_blocked,
-                is_shot=o.option_type == "shot",
-                is_best_alternative=(
-                    o.option_type == "pass"
-                    and best_id is not None
-                    and o.player_id == best_id
-                    and o.alternative_type == best_type
-                ),
-            )
-            for o in decision.options
-        ]
+        valuation = self._valuation(decision)
         taken = next(o for o in decision.options if o.option_type == "shot")
         summary = self.summaries.filter(pl.col("shot_id") == shot_id)
         curve = None
@@ -480,10 +504,77 @@ class AskService:
             confidence=_round(decision.confidence),
             shooter=self._player_ref(decision.shooter_id),
             shot=ShotTaken(zone=taken.zone, points=taken.points, value=_round(taken.value)),
-            options=options,
-            best_alternative=self._best_alternative(row),
-            cost=_round(decision.cost),
-            good_read=decision.good_read,
+            options=valuation.options,
+            best_alternative=valuation.best_alternative,
+            cost=valuation.cost,
+            good_read=valuation.good_read,
             curve=curve,
             clip_command=f"ventaja clip {shot_id} --out {shot_id}.gif",
+        )
+
+    # -- what if ------------------------------------------------------------------------
+
+    def what_if(self, shot_id: str, moves: list[Move]) -> WhatIf:
+        """Value a valued shot again after moving players of its decision frame.
+
+        Positions are in feet, offense orientation, clamped to the half court. Raises
+        ``ValueError`` for too many moves, ``DataNotFoundError`` for an unknown or excluded
+        shot and ``AmbiguousQueryError`` for a player who is not one of the ten on the frame.
+        """
+        if len(moves) > BOARD_MAX_MOVES:
+            raise ValueError(f"at most {BOARD_MAX_MOVES} moves")
+        if self._board is None:
+            self._board = Board(self.settings, model=self.model, priors=self.priors)
+        board = self._board
+        state = board.load(shot_id)
+        before = state.original
+        applied: list[AppliedMove] = []
+        for m in moves:
+            player_id = self._frame_player(state.snapshot.offense, state.snapshot.defense, m.player)
+            state = board.move(state, player_id, m.x, m.y)
+            x, y = state.moves[player_id]
+            applied.append(
+                AppliedMove(player=self._player_ref(player_id), x=_round(x), y=_round(y))
+            )
+        after = board.evaluate(state)
+        sides = (("offense", state.snapshot.offense), ("defense", state.snapshot.defense))
+        return WhatIf(
+            shot_id=shot_id,
+            before=self._valuation(before),
+            after=self._valuation(after),
+            delta_cost=_round(after.cost - before.cost),
+            moves=applied,
+            players=[
+                PlacedPlayer(
+                    player=self._player_ref(p.player_id),
+                    side=side,
+                    x=_round(p.x),
+                    y=_round(p.y),
+                    is_shooter=p.player_id == state.shooter_id,
+                    moved=p.player_id in state.moves,
+                )
+                for side, group in sides
+                for p in group
+            ],
+        )
+
+    def _frame_player(self, offense: list[PlayerPos], defense: list[PlayerPos], query: str) -> int:
+        """Player id among the ten of a frame: exact id, else a folded name fragment."""
+        names = {p.player_id: self.people.names.get(p.player_id, str(p.player_id)) for p in offense}
+        names |= {
+            p.player_id: self.people.names.get(p.player_id, str(p.player_id)) for p in defense
+        }
+        side = {p.player_id: "offense" for p in offense} | {p.player_id: "defense" for p in defense}
+        q = query.strip()
+        if q.isdigit() and int(q) in names:
+            return int(q)
+        folded = fold_name(q)
+        hits = [i for i, n in names.items() if folded in fold_name(n)]
+        if len(hits) == 1:
+            return hits[0]
+        lines = [
+            f"  {i} — {names[i]} — {side[i]}" for i in sorted(names, key=lambda i: (side[i], i))
+        ]
+        raise AmbiguousQueryError(
+            "\n".join([f"{len(hits)} players on the frame match {query!r}:", *lines])
         )

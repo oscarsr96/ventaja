@@ -1,16 +1,21 @@
 """Output models of the ask service: frozen, ids always travel with their names."""
 
+from pydantic import Field
+
 from ventaja.model.core import _Frozen
 
 __all__ = [
     "Alternative",
+    "AppliedMove",
     "BestAlternative",
     "ClockBand",
     "CurveSummaryOut",
     "GameInfo",
     "GameSide",
     "Metrics",
+    "Move",
     "OptionOut",
+    "PlacedPlayer",
     "PlayerProfile",
     "PlayerRef",
     "RankedPlayer",
@@ -20,6 +25,8 @@ __all__ = [
     "ShotSummary",
     "ShotTaken",
     "TeamRef",
+    "Valuation",
+    "WhatIf",
 ]
 
 
@@ -204,3 +211,51 @@ class ShotExplanation(_Frozen):
     good_read: bool | None
     curve: CurveSummaryOut | None
     clip_command: str
+
+
+class Move(_Frozen):
+    """A what-if move: a player (id or name fragment) to a point of the half court, in feet."""
+
+    player: str
+    x: float = Field(allow_inf_nan=False)
+    y: float = Field(allow_inf_nan=False)
+
+
+class AppliedMove(_Frozen):
+    """A move as applied: the resolved player and the effective (clamped) position."""
+
+    player: PlayerRef
+    x: float
+    y: float
+
+
+class Valuation(_Frozen):
+    """A shot valued against its best alternative, before or after the moves."""
+
+    shot_value: float
+    best_alternative: BestAlternative | None
+    cost: float
+    good_read: bool | None
+    options: list[OptionOut]
+
+
+class PlacedPlayer(_Frozen):
+    """One of the ten players at the end of a what-if, with whether a move placed him."""
+
+    player: PlayerRef
+    side: str
+    x: float
+    y: float
+    is_shooter: bool
+    moved: bool
+
+
+class WhatIf(_Frozen):
+    """A decision frame valued before and after moving players on the court."""
+
+    shot_id: str
+    before: Valuation
+    after: Valuation
+    delta_cost: float
+    moves: list[AppliedMove]
+    players: list[PlacedPlayer]

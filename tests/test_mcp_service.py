@@ -5,14 +5,22 @@ from pathlib import Path
 from typing import Any
 
 import polars as pl
+import pydantic
 import pytest
 
 from ventaja.config import Settings
 from ventaja.data.load import ARTIFACTS_DIR, decision_files
 from ventaja.data.people import load_people
 from ventaja.errors import AmbiguousQueryError, DataNotFoundError, VentajaError
+from ventaja.geometry.court import HALF_LENGTH
+from ventaja.mcp.models import Move
 from ventaja.mcp.service import VERDICTS, AskService
-from ventaja.value.params import MCP_DEFAULT_LIMIT, MCP_MAX_LIMIT, PROFILE_MIN_SHOTS
+from ventaja.value.params import (
+    BOARD_MAX_MOVES,
+    MCP_DEFAULT_LIMIT,
+    MCP_MAX_LIMIT,
+    PROFILE_MIN_SHOTS,
+)
 
 
 @pytest.fixture(scope="module")
@@ -173,3 +181,34 @@ def test_explain_shot_errors_name_the_shot(service: AskService) -> None:
     excluded = service.decisions.filter(pl.col("rule") == "excluded")["shot_id"][0]
     with pytest.raises(VentajaError, match=f"{excluded} is excluded"):
         service.explain_shot(excluded)
+
+
+def test_what_if_without_moves_reproduces_the_decision(service: AskService) -> None:
+    result = service.what_if("shot-114243-1-0", [])
+    assert result.after.cost == pytest.approx(result.before.cost, abs=1e-3)
+    assert result.delta_cost == 0.0 and not any(p.moved for p in result.players)
+
+
+def test_what_if_moves_the_shooter_and_clamps(service: AskService) -> None:
+    shot = service.explain_shot("shot-114243-1-0")
+    result = service.what_if(
+        "shot-114243-1-0", [Move(player=str(shot.shooter.player_id), x=-99.0, y=0.0)]
+    )
+    assert result.moves[0].x == -HALF_LENGTH
+    assert result.moves[0].player.player_id == shot.shooter.player_id
+    assert next(p for p in result.players if p.is_shooter).moved
+    assert result.after.cost != result.before.cost
+
+
+def test_what_if_resolves_player_by_name_and_rejects_strangers(service: AskService) -> None:
+    name = service.explain_shot("shot-114243-1-0").options[1].player.name
+    assert name is not None
+    result = service.what_if("shot-114243-1-0", [Move(player=name, x=-20.0, y=20.0)])
+    assert len(result.moves) == 1
+    with pytest.raises(AmbiguousQueryError, match="offense|defense"):
+        # Russell (Breogán) is not in Granada-Manresa
+        service.what_if("shot-114243-1-0", [Move(player="58474", x=-20.0, y=0.0)])
+    with pytest.raises(ValueError, match=f"at most {BOARD_MAX_MOVES}"):
+        service.what_if("shot-114243-1-0", [Move(player="1", x=0.0, y=0.0)] * (BOARD_MAX_MOVES + 1))
+    with pytest.raises(pydantic.ValidationError):
+        Move(player="1", x=float("nan"), y=0.0)
