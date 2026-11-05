@@ -19,6 +19,7 @@ import polars as pl
 from ventaja.config import Settings
 from ventaja.data.build import write_parquet_atomic
 from ventaja.data.load import (
+    GAMES_FILE,
     decision_files,
     load_aggregates,
     load_curve_summaries,
@@ -44,6 +45,7 @@ from ventaja.value.params import ALT_TYPES, CLOCK_BUCKETS
 __all__ = [
     "LEAGUE_ID",
     "LEAGUE_NAME",
+    "GAMES_SCHEMA",
     "PLAYERS_SCHEMA",
     "TEAMS_SCHEMA",
     "PlayerCard",
@@ -197,6 +199,47 @@ def fold_name(text: str) -> str:
     return "".join(c for c in decomposed if not unicodedata.combining(c)).casefold()
 
 
+GAMES_SCHEMA: dict[str, pl.DataType] = {
+    "game_id": pl.Int64(),
+    "date": pl.String(),
+    "home_team_id": pl.Int64(),
+    "home_team": pl.String(),
+    "away_team_id": pl.Int64(),
+    "away_team": pl.String(),
+    "home_score": pl.Int64(),
+    "away_score": pl.Int64(),
+}
+
+
+def _games_table(
+    game_ids: Sequence[int], games_meta: pl.DataFrame | None, matches: pl.DataFrame | None
+) -> pl.DataFrame:
+    """One row per game of ``game_ids``: teams and date from ``meta/games``, score from
+    ``meta/matches``; whatever a missing table would supply is null."""
+    base = pl.DataFrame({"game_id": sorted(game_ids)}, schema={"game_id": pl.Int64()})
+    if games_meta is not None:
+        base = base.join(
+            games_meta.select(
+                "game_id",
+                pl.col("date").dt.strftime("%Y-%m-%d"),
+                "home_team_id",
+                pl.col("home_team_name").alias("home_team"),
+                "away_team_id",
+                pl.col("away_team_name").alias("away_team"),
+            ),
+            on="game_id",
+            how="left",
+        )
+    if matches is not None:
+        base = base.join(
+            matches.select("game_id", "home_score", "away_score"), on="game_id", how="left"
+        )
+    for name, dtype in GAMES_SCHEMA.items():
+        if name not in base.columns:
+            base = base.with_columns(pl.lit(None, dtype=dtype).alias(name))
+    return base.select([pl.col(n).cast(t) for n, t in GAMES_SCHEMA.items()]).sort("game_id")
+
+
 def _team_names(games_meta: pl.DataFrame | None) -> dict[int, str]:
     if games_meta is None:
         return {}
@@ -265,13 +308,15 @@ def _write(
 
 def build_players(
     settings: Settings, *, out_dir: Path | None = None, model: ValueModel | None = None
-) -> tuple[Path, Path]:
-    """Build ``players.parquet`` and ``teams.parquet`` from every game with decisions.
+) -> tuple[Path, Path, Path]:
+    """Build ``players.parquet``, ``teams.parquet`` and ``games.parquet`` from the decisions.
 
     Decisions, curve summaries and options of the games in ``artifact_dir("decisions")`` are
     concatenated. Players are the shooters with at least one valued decision; name and team come
     from ``meta/players`` (the id as name and no team without it), team names from
-    ``meta/games``. The season block needs the shots aggregate; drives are optional.
+    ``meta/games``. ``games.parquet`` lists each game with decisions (teams and date from
+    ``meta/games``, score from ``meta/matches``, optional: null without it).
+    The season block needs the shots aggregate; drives are optional.
     ``model_trained_at`` is ``model.trained_at`` (default: the versioned model). Written
     atomically to ``out_dir`` (default: the build's ``players/``).
     """
@@ -284,7 +329,9 @@ def build_players(
     shots_agg = load_aggregates("shots", settings)
     drives_agg = _optional(lambda: load_aggregates("drives", settings))
     meta = _optional(lambda: load_meta("players", settings))
-    team_names = _team_names(_optional(lambda: load_meta("games", settings)))
+    games_meta = _optional(lambda: load_meta("games", settings))
+    matches = _optional(lambda: load_meta("matches", settings))
+    team_names = _team_names(games_meta)
     stamps = {
         "built_at": datetime.now(UTC).isoformat(timespec="seconds"),
         "model_trained_at": (model if model is not None else ValueModel.default()).trained_at,
@@ -364,6 +411,8 @@ def build_players(
 
     out = out_dir if out_dir is not None else settings.players_parquet().parent
     players_path, teams_path = out / "players.parquet", out / "teams.parquet"
+    games_path = out / GAMES_FILE
     _write(cards, PLAYERS_SCHEMA, players_path)
     _write(teams, TEAMS_SCHEMA, teams_path)
-    return players_path, teams_path
+    write_parquet_atomic(_games_table(games, games_meta, matches), games_path)
+    return players_path, teams_path, games_path

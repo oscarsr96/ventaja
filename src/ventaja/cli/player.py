@@ -30,13 +30,14 @@ def player_build(
         typer.Option("--out", help="Output directory (default: the build's players/)."),
     ] = None,
 ) -> None:
-    """Build players.parquet (one row per shooter plus LIGA) and teams.parquet."""
+    """Build players.parquet (one row per shooter plus LIGA), teams.parquet and games.parquet."""
     settings = settings_or_exit()
-    players_path, teams_path = run_or_exit(lambda: build_players(settings, out_dir=out))
+    players_path, teams_path, games_path = run_or_exit(lambda: build_players(settings, out_dir=out))
     players = pl.read_parquet(players_path)
     league = card_of(LEAGUE_ID, players)
     typer.echo(f"{players.height - 1} jugadores -> {players_path}")
     typer.echo(f"{pl.read_parquet(teams_path).height} equipos -> {teams_path}")
+    typer.echo(f"{pl.read_parquet(games_path).height} partidos -> {games_path}")
     typer.echo(f"coste medio de la liga {fmt(league.mean_cost)} ({league.n_readable} legibles)")
 
 
