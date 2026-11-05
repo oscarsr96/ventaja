@@ -98,7 +98,7 @@ Drag any of the ten players on the decision frame of a shot (2.5D view by defaul
 
 ![Whiteboard with the shooter dragged into the restricted area](docs/figures/board-shot-114243-3-108.jpg)
 
-*Louis Olinde dragged into the restricted area: the decision cost falls from 1.53 to 0.76.*
+*Louis Olinde dragged into the restricted area: the decision cost falls from 1.53 to 0.74.*
 
 ## Ask the court
 
