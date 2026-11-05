@@ -1,15 +1,17 @@
 """The ask service over the packaged artifacts: games, resolvers, rankings and profiles."""
 
+import shutil
 from pathlib import Path
 from typing import Any
 
+import polars as pl
 import pytest
 
 from ventaja.config import Settings
-from ventaja.data.load import decision_files
+from ventaja.data.load import ARTIFACTS_DIR, decision_files
 from ventaja.data.people import load_people
-from ventaja.errors import AmbiguousQueryError
-from ventaja.mcp.service import AskService
+from ventaja.errors import AmbiguousQueryError, DataNotFoundError, VentajaError
+from ventaja.mcp.service import VERDICTS, AskService
 from ventaja.value.params import MCP_DEFAULT_LIMIT, MCP_MAX_LIMIT, PROFILE_MIN_SHOTS
 
 
@@ -110,3 +112,64 @@ def test_board_uses_people_directory(tmp_path: Path) -> None:
     clean = Settings(data_dir=tmp_path / "raw", build_dir=tmp_path / "build")
     people = load_people(clean)
     assert people.names[58474] == "DeWayne Russell" and people.player_team[58474] in people.teams
+
+
+def test_find_shots_default_is_costliest_first(service: AskService) -> None:
+    found = service.find_shots()
+    assert len(found.shots) == MCP_DEFAULT_LIMIT and found.total == 1351
+    costs = [s.cost for s in found.shots]
+    assert costs == sorted(costs, reverse=True) and found.shots[0].shooter.name
+
+
+def test_find_shots_filters_compose(service: AskService) -> None:
+    mine = service.find_shots(player="Spissu", game=191313, limit=50)
+    assert mine.total >= 1
+    assert all(s.shooter.name == "Marco Spissu" and s.game_id == 191313 for s in mine.shots)
+    late = service.find_shots(
+        team="Zaragoza", verdict="late", good_read=False, min_cost=0.3, limit=50
+    )
+    assert all(s.verdict == "late" and s.good_read is False and s.cost >= 0.3 for s in late.shots)
+    versus = service.find_shots(opponent="Zaragoza", game=191313, limit=50)
+    assert versus.total > 0
+    assert not {s.shooter.team.name for s in versus.shots if s.shooter.team} & {
+        "Casademont Zaragoza"
+    }
+
+
+def test_find_shots_clock_band_skips_unknown_clock(service: AskService) -> None:
+    band = service.find_shots(clock="6-0", limit=50)
+    assert band.total > 0
+    assert all(s.shot_clock is not None and 0.0 <= s.shot_clock <= 6.0 for s in band.shots)
+    with pytest.raises(ValueError, match="verdict must be one of"):
+        service.find_shots(verdict="early")
+    with pytest.raises(ValueError, match="clock must be one of"):
+        service.find_shots(clock="30-24")
+    with pytest.raises(ValueError, match="limit must be between"):
+        service.find_shots(limit=0)
+
+
+def test_find_shots_without_summary_keeps_the_shot(tmp_path: Path) -> None:
+    build = tmp_path / "build"
+    shutil.copytree(ARTIFACTS_DIR / "decisions", build / "decisions")  # no curves/ in the build
+    (build / "curves").mkdir()
+    shutil.copy(ARTIFACTS_DIR / "curves" / "114243.parquet", build / "curves")  # no summary file
+    partial = AskService(Settings(data_dir=tmp_path / "raw", build_dir=build))
+    found = partial.find_shots(game=114243, limit=50)
+    assert found.total > 0 and all(s.verdict is None and s.headline is None for s in found.shots)
+
+
+def test_explain_shot(service: AskService) -> None:
+    shot = service.explain_shot("shot-114243-1-0")
+    assert shot.shooter.name and len(shot.options) == 5
+    assert sum(o.is_shot for o in shot.options) == 1
+    assert sum(o.is_best_alternative for o in shot.options) <= 1
+    assert shot.clip_command == "ventaja clip shot-114243-1-0 --out shot-114243-1-0.gif"
+    assert shot.curve is None or shot.curve.verdict in VERDICTS
+
+
+def test_explain_shot_errors_name_the_shot(service: AskService) -> None:
+    with pytest.raises(DataNotFoundError, match="shot-114243-9-9"):
+        service.explain_shot("shot-114243-9-9")
+    excluded = service.decisions.filter(pl.col("rule") == "excluded")["shot_id"][0]
+    with pytest.raises(VentajaError, match=f"{excluded} is excluded"):
+        service.explain_shot(excluded)

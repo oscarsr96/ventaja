@@ -4,14 +4,21 @@ from ventaja.model.core import _Frozen
 
 __all__ = [
     "Alternative",
+    "BestAlternative",
     "ClockBand",
+    "CurveSummaryOut",
     "GameInfo",
     "GameSide",
     "Metrics",
+    "OptionOut",
     "PlayerProfile",
     "PlayerRef",
     "RankedPlayer",
     "Ranking",
+    "ShotExplanation",
+    "ShotList",
+    "ShotSummary",
+    "ShotTaken",
     "TeamRef",
 ]
 
@@ -112,3 +119,88 @@ class PlayerProfile(_Frozen):
     league: Metrics
     phrase: str | None
     caution: str | None
+
+
+class BestAlternative(_Frozen):
+    """The best viable pass of a shot: who gets it, what kind of chance and its value."""
+
+    player: PlayerRef
+    type: str
+    value: float
+
+
+class ShotSummary(_Frozen):
+    """One valued shot in a list: its cost against the best alternative and its curve verdict."""
+
+    shot_id: str
+    game_id: int
+    period: int | None
+    shot_clock: float | None
+    shooter: PlayerRef
+    shot_value: float
+    best_alternative: BestAlternative | None
+    cost: float
+    good_read: bool | None
+    verdict: str | None
+    headline: str | None
+
+
+class ShotList(_Frozen):
+    """Shots matching a search; ``total`` counts the matches before the limit."""
+
+    total: int
+    shots: list[ShotSummary]
+
+
+class OptionOut(_Frozen):
+    """One option at the decision frame (the shot or a pass)."""
+
+    player: PlayerRef
+    option_type: str
+    zone: str
+    points: int
+    proba: float
+    value: float
+    viability: float
+    adjusted_value: float
+    alternative_type: str | None
+    lane_blocked: bool
+    is_shot: bool
+    is_best_alternative: bool
+
+
+class ShotTaken(_Frozen):
+    """The shot that was taken: zone, points and expected value."""
+
+    zone: str
+    points: int
+    value: float
+
+
+class CurveSummaryOut(_Frozen):
+    """The advantage window of the possession: verdict, size and who held the ball."""
+
+    verdict: str
+    advantage_seconds: float
+    release_lag_seconds: float
+    advantage_holder: PlayerRef | None
+    headline: str
+
+
+class ShotExplanation(_Frozen):
+    """Everything about one valued shot: options, best alternative, curve and the clip command."""
+
+    shot_id: str
+    game_id: int
+    period: int | None
+    shot_clock: float | None
+    rule: str
+    confidence: float
+    shooter: PlayerRef
+    shot: ShotTaken
+    options: list[OptionOut]
+    best_alternative: BestAlternative | None
+    cost: float
+    good_read: bool | None
+    curve: CurveSummaryOut | None
+    clip_command: str

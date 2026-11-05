@@ -4,7 +4,7 @@ It loads the decisions, curve summaries, player and team cards, games and people
 answers games, rankings and player profiles with ids that always travel with their names.
 """
 
-from typing import Any
+from typing import Any, overload
 
 import polars as pl
 
@@ -13,28 +13,39 @@ from ventaja.data.load import (
     curve_files,
     decision_files,
     load_curve_summaries,
+    load_decision_options,
     load_decisions,
+    load_frames,
     load_games,
     load_players_cards,
     load_roster,
     load_teams_cards,
 )
 from ventaja.data.people import People, load_people
+from ventaja.decision.cost import decision_from_tables
 from ventaja.decision.curve import SUMMARY_SCHEMA
-from ventaja.errors import AmbiguousQueryError, DataNotFoundError
+from ventaja.errors import AmbiguousQueryError, DataNotFoundError, VentajaError
 from ventaja.mcp.models import (
     Alternative,
+    BestAlternative,
     ClockBand,
+    CurveSummaryOut,
     GameInfo,
     GameSide,
     Metrics,
+    OptionOut,
     PlayerProfile,
     PlayerRef,
     RankedPlayer,
     Ranking,
+    ShotExplanation,
+    ShotList,
+    ShotSummary,
+    ShotTaken,
     TeamRef,
 )
 from ventaja.profile.card import LEAGUE_ID, card_of, fold_name
+from ventaja.value.clock import clock_bucket_expr
 from ventaja.value.model import ValueModel
 from ventaja.value.params import (
     ALT_TYPES,
@@ -45,13 +56,18 @@ from ventaja.value.params import (
 )
 from ventaja.value.priors import Priors
 
-__all__ = ["CLOCK_BANDS", "RANK_KEYS", "AskService"]
+__all__ = ["CLOCK_BANDS", "RANK_KEYS", "VERDICTS", "AskService"]
 
 RANK_KEYS = ("mean_cost", "good_read_share", "late_held_share")
 CLOCK_BANDS = tuple(label for label, _, _ in CLOCK_BUCKETS)
+VERDICTS = ("late", "during", "none", "no_window")
 _MAX_CANDIDATES = 20
 
 
+@overload
+def _round(x: float) -> float: ...
+@overload
+def _round(x: None) -> None: ...
 def _round(x: float | None) -> float | None:
     """Round a float to 3 decimals (null stays null)."""
     return None if x is None else round(x, 3)
@@ -296,4 +312,178 @@ class AskService:
                 if card.n_readable < PROFILE_MIN_SHOTS
                 else None
             ),
+        )
+
+    # -- shots --------------------------------------------------------------------------
+
+    def _periods(self, game_id: int) -> dict[str, int | None]:
+        """Period of each shot of a game (its ball row in the decision frames)."""
+        try:
+            frames = load_frames(game_id, self.settings)
+        except DataNotFoundError:
+            return {}
+        ball = frames.filter(pl.col("side") == "ball").unique(subset="shot_id", keep="first")
+        return dict(zip(ball["shot_id"], ball["period"], strict=True))
+
+    def _best_alternative(self, row: dict[str, Any]) -> BestAlternative | None:
+        if row["best_alt_player_id"] is None:
+            return None
+        return BestAlternative(
+            player=self._player_ref(row["best_alt_player_id"]),
+            type=row["best_alt_type"],
+            value=_round(row["best_alt_value"]),
+        )
+
+    def find_shots(
+        self,
+        *,
+        player: str | None = None,
+        team: str | None = None,
+        opponent: str | None = None,
+        game: int | None = None,
+        clock: str | None = None,
+        verdict: str | None = None,
+        good_read: bool | None = None,
+        min_cost: float | None = None,
+        limit: int = MCP_DEFAULT_LIMIT,
+    ) -> ShotList:
+        """Valued shots matching every given filter, costliest first.
+
+        ``team`` is the shooter's team and ``opponent`` the other team of the shot's game.
+        Raises ``ValueError`` on an invalid argument.
+        """
+        if verdict is not None and verdict not in VERDICTS:
+            raise ValueError(f"verdict must be one of {', '.join(VERDICTS)}; got {verdict!r}")
+        if clock is not None and clock not in CLOCK_BANDS:
+            raise ValueError(f"clock must be one of {', '.join(CLOCK_BANDS)}; got {clock!r}")
+        if not 1 <= limit <= MCP_MAX_LIMIT:
+            raise ValueError(f"limit must be between 1 and {MCP_MAX_LIMIT}; got {limit}")
+
+        summaries = self.summaries.select(
+            "shot_id", "verdict", "headline_en", "window_handler_id"
+        ).unique(subset="shot_id", keep="first")
+        sides = self.games.select(
+            "game_id", pl.col("home_team_id").alias("_home"), pl.col("away_team_id").alias("_away")
+        )
+        shooter_team = self.people.player_team
+        shots = (
+            self.decisions.filter(pl.col("rule") != "excluded")
+            .join(summaries, on="shot_id", how="left")
+            .join(sides, on="game_id", how="left")
+            .with_columns(
+                _team=pl.col("shooter_id").replace_strict(shooter_team, default=None),
+            )
+            .with_columns(
+                _opponent=pl.when(pl.col("_team") == pl.col("_home"))
+                .then(pl.col("_away"))
+                .when(pl.col("_team") == pl.col("_away"))
+                .then(pl.col("_home"))
+            )
+        )
+        if player is not None:
+            shots = shots.filter(pl.col("shooter_id") == self.resolve_player(player))
+        if team is not None:
+            shots = shots.filter(pl.col("_team") == self.resolve_team(team))
+        if opponent is not None:
+            shots = shots.filter(pl.col("_opponent") == self.resolve_team(opponent))
+        if game is not None:
+            shots = shots.filter(pl.col("game_id") == game)
+        if clock is not None:
+            shots = shots.filter(clock_bucket_expr(CLOCK_BANDS.index(clock)))
+        if verdict is not None:
+            shots = shots.filter(pl.col("verdict") == verdict)
+        if good_read is not None:
+            shots = shots.filter(pl.col("good_read") == good_read)
+        if min_cost is not None:
+            shots = shots.filter(pl.col("cost") >= min_cost)
+
+        shots = shots.sort(["cost", "shot_id"], descending=[True, False])
+        periods: dict[int, dict[str, int | None]] = {}
+        out: list[ShotSummary] = []
+        for r in shots.head(limit).iter_rows(named=True):
+            if r["game_id"] not in periods:
+                periods[r["game_id"]] = self._periods(r["game_id"])
+            out.append(
+                ShotSummary(
+                    shot_id=r["shot_id"],
+                    game_id=r["game_id"],
+                    period=periods[r["game_id"]].get(r["shot_id"]),
+                    shot_clock=_round(r["shot_clock"]),
+                    shooter=self._player_ref(r["shooter_id"]),
+                    shot_value=_round(r["shot_value"]),
+                    best_alternative=self._best_alternative(r),
+                    cost=_round(r["cost"]),
+                    good_read=r["good_read"],
+                    verdict=r["verdict"],
+                    headline=r["headline_en"],
+                )
+            )
+        return ShotList(total=shots.height, shots=out)
+
+    def explain_shot(self, shot_id: str) -> ShotExplanation:
+        """The options at the decision frame of one valued shot, with its curve and clip command.
+
+        Raises ``DataNotFoundError`` for an unknown shot and ``VentajaError`` for an excluded one.
+        """
+        hit = self.decisions.filter(pl.col("shot_id") == shot_id)
+        if hit.height == 0:
+            raise DataNotFoundError(f"shot {shot_id} not found in the decisions tables")
+        row = hit.row(0, named=True)
+        if row["rule"] == "excluded":
+            raise VentajaError(f"shot {shot_id} is excluded: {row['reason']}")
+        game_id = row["game_id"]
+        decision = decision_from_tables(
+            shot_id, self.decisions, load_decision_options(game_id, self.settings)
+        )
+        best_id, best_type = decision.best_alt_player_id, decision.best_alt_type
+        options = [
+            OptionOut(
+                player=self._player_ref(o.player_id),
+                option_type=o.option_type,
+                zone=o.zone,
+                points=o.points,
+                proba=_round(o.proba),
+                value=_round(o.value),
+                viability=_round(o.viability),
+                adjusted_value=_round(o.adjusted_value),
+                alternative_type=o.alternative_type,
+                lane_blocked=o.lane_blocked,
+                is_shot=o.option_type == "shot",
+                is_best_alternative=(
+                    o.option_type == "pass"
+                    and best_id is not None
+                    and o.player_id == best_id
+                    and o.alternative_type == best_type
+                ),
+            )
+            for o in decision.options
+        ]
+        taken = next(o for o in decision.options if o.option_type == "shot")
+        summary = self.summaries.filter(pl.col("shot_id") == shot_id)
+        curve = None
+        if summary.height:
+            c = summary.row(0, named=True)
+            holder = c["window_handler_id"]
+            curve = CurveSummaryOut(
+                verdict=c["verdict"],
+                advantage_seconds=_round(c["advantage_seconds"]),
+                release_lag_seconds=_round(c["release_lag_seconds"]),
+                advantage_holder=None if holder is None else self._player_ref(holder),
+                headline=c["headline_en"],
+            )
+        return ShotExplanation(
+            shot_id=shot_id,
+            game_id=game_id,
+            period=self._periods(game_id).get(shot_id),
+            shot_clock=_round(decision.shot_clock),
+            rule=decision.rule,
+            confidence=_round(decision.confidence),
+            shooter=self._player_ref(decision.shooter_id),
+            shot=ShotTaken(zone=taken.zone, points=taken.points, value=_round(taken.value)),
+            options=options,
+            best_alternative=self._best_alternative(row),
+            cost=_round(decision.cost),
+            good_read=decision.good_read,
+            curve=curve,
+            clip_command=f"ventaja clip {shot_id} --out {shot_id}.gif",
         )
