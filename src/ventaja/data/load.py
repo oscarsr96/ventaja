@@ -231,6 +231,7 @@ _BUILD_HINT: dict[ArtifactKind, str] = {
 }
 PLAYERS_FILE = "players.parquet"
 TEAMS_FILE = "teams.parquet"
+GAMES_FILE = "games.parquet"
 
 
 def _main_tables(root: Path, kind: ArtifactKind) -> list[Path]:
@@ -344,3 +345,8 @@ def load_players_cards(settings: Settings) -> pl.DataFrame:
 def load_teams_cards(settings: Settings) -> pl.DataFrame:
     """The flat team cards, from ``artifact_dir("players")``."""
     return _artifact_table(None, "players", TEAMS_FILE, settings)
+
+
+def load_games(settings: Settings) -> pl.DataFrame:
+    """The games with decisions (teams, date, score), from ``artifact_dir("players")``."""
+    return _artifact_table(None, "players", GAMES_FILE, settings)

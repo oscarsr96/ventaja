@@ -105,3 +105,7 @@ BOARD_MAX_MOVES = 10  # players one evaluation request may move
 # ft/s given to a dragged player: placed, not running, so the pass projection stays put
 BOARD_MOVED_VELOCITY = 0.0
 BOARD_PORT = 8765  # default port of the local board server
+
+# MCP server (layer 5)
+MCP_DEFAULT_LIMIT = 10  # rows a ranking returns when the caller sets no limit
+MCP_MAX_LIMIT = 50  # most rows one ranking may return

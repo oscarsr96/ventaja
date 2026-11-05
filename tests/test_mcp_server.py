@@ -1,0 +1,150 @@
+"""The MCP server over the in-memory protocol: tools, errors and the glossary resource."""
+
+import asyncio
+import inspect
+from collections.abc import Callable
+from pathlib import Path
+from typing import Any
+
+import polars as pl
+import pytest
+from mcp.client import Client
+from mcp.server.mcpserver import MCPServer
+from mcp.types import CallToolResult
+
+from ventaja.config import Settings
+from ventaja.mcp.server import (
+    _DISPATCH,
+    GLOSSARY_URI,
+    TOOL_NAMES,
+    call_tool,
+    create_server,
+    render_glossary,
+)
+from ventaja.mcp.service import AskService
+from ventaja.value.params import MCP_MAX_LIMIT, PROFILE_MIN_SHOTS
+
+
+def _expect(ok: object) -> None:
+    assert ok
+
+
+SHOT = "shot-114243-1-0"
+
+
+@pytest.fixture(scope="module")
+def settings(tmp_path_factory: pytest.TempPathFactory) -> Settings:
+    tmp = tmp_path_factory.mktemp("mcp-server")
+    return Settings(data_dir=tmp / "raw", build_dir=tmp / "build")
+
+
+@pytest.fixture(scope="module")
+def server(settings: Settings) -> MCPServer:
+    return create_server(settings)
+
+
+async def _call(server: MCPServer, name: str, args: dict[str, Any]) -> CallToolResult:
+    async with Client(server) as client:
+        return await client.call_tool(name, args)
+
+
+def test_lists_the_six_tools_with_schemas(server: MCPServer) -> None:
+    async def run() -> None:
+        async with Client(server) as client:
+            tools = {t.name: t for t in (await client.list_tools()).tools}
+            assert tuple(tools) == TOOL_NAMES
+            assert all(t.description and t.output_schema for t in tools.values())
+            limit = tools["rank_players"].input_schema["properties"]["limit"]
+            assert limit["maximum"] == MCP_MAX_LIMIT and limit["minimum"] == 1
+            for tool in tools.values():
+                props = tool.input_schema.get("properties", {})
+                assert all(p.get("description") for p in props.values()), tool.name
+
+    asyncio.run(run())
+
+
+def test_every_tool_answers_over_the_protocol(server: MCPServer) -> None:
+    explained = asyncio.run(_call(server, "explain_shot", {"shot_id": SHOT}))
+    shooter = str(explained.structured_content["shooter"]["player_id"])  # type: ignore[index]
+    cases: dict[str, dict[str, Any]] = {
+        "list_games": {},
+        "rank_players": {"team": "Breogan", "clock": "6-0"},
+        "player_profile": {"player": "Russell"},
+        "find_shots": {"player": "Spissu", "game": 191313},
+        "explain_shot": {"shot_id": SHOT},
+        "what_if": {"shot_id": SHOT, "moves": [{"player": shooter, "x": -42.0, "y": 0.0}]},
+    }
+    assert tuple(cases) == TOOL_NAMES
+    checks: dict[str, Callable[[dict[str, Any]], None]] = {
+        "list_games": lambda c: _expect(len(c["result"]) == 10),
+        "rank_players": lambda c: _expect(c["by"] == "mean_cost" and c["clock"] == "6-0"),
+        "player_profile": lambda c: _expect(c["player"]["player_id"] == 58474),
+        "find_shots": lambda c: _expect(
+            c["shots"] and all(s["game_id"] == 191313 for s in c["shots"])
+        ),
+        "explain_shot": lambda c: _expect(c["shot_id"] == SHOT),
+        "what_if": lambda c: _expect(c["shot_id"] == SHOT),
+    }
+    for name, args in cases.items():
+        result = asyncio.run(_call(server, name, args))
+        assert not result.is_error, (name, result.content)
+        assert result.structured_content, name
+        checks[name](result.structured_content)
+
+
+def test_errors_are_tool_errors_not_crashes(server: MCPServer, settings: Settings) -> None:
+    ambiguous = asyncio.run(_call(server, "player_profile", {"player": "a"}))
+    assert ambiguous.is_error and "players match" in ambiguous.content[0].text  # type: ignore[union-attr]
+    bad_limit = asyncio.run(_call(server, "find_shots", {"limit": MCP_MAX_LIMIT + 1}))
+    assert bad_limit.is_error
+    unknown = asyncio.run(_call(server, "explain_shot", {"shot_id": "shot-114243-9-9"}))
+    assert unknown.is_error and "shot-114243-9-9" in unknown.content[0].text  # type: ignore[union-attr]
+    excluded_id = str(
+        AskService(settings).decisions.filter(pl.col("rule") == "excluded")["shot_id"][0]
+    )
+    excluded = asyncio.run(_call(server, "explain_shot", {"shot_id": excluded_id}))
+    assert excluded.is_error and "is excluded" in excluded.content[0].text  # type: ignore[union-attr]
+    # the schema enum rejects it before the service; the service check serves the CLI path
+    with pytest.raises(ValueError, match="clock must be one of"):
+        AskService(settings).rank_players(clock="9-9")
+    bad_arg = asyncio.run(_call(server, "rank_players", {"clock": "9-9"}))
+    assert bad_arg.is_error and "Input should be" in bad_arg.content[0].text  # type: ignore[union-attr]
+
+
+def test_glossary_resource_is_rendered_from_params(server: MCPServer) -> None:
+    async def run() -> str:
+        async with Client(server) as client:
+            return (await client.read_resource(GLOSSARY_URI)).contents[0].text  # type: ignore[union-attr]
+
+    text = asyncio.run(run())
+    assert text == render_glossary()
+    assert str(PROFILE_MIN_SHOTS) in text and "$" not in text and "ADR-0009" in text
+
+
+def test_call_tool_validates_and_dispatches(settings: Settings) -> None:
+    service = AskService(settings)
+    assert call_tool(service, "list_games", {}) == service.list_games()
+    out = call_tool(service, "rank_players", {"limit": "3"})
+    assert len(out.players) <= 3  # type: ignore[union-attr]
+    with pytest.raises(KeyError):
+        call_tool(service, "nope", {})
+    with pytest.raises(ValueError, match="limit"):
+        call_tool(service, "find_shots", {"limit": MCP_MAX_LIMIT + 1})
+    with pytest.raises(ValueError, match="bogus"):
+        call_tool(service, "find_shots", {"bogus": 1})
+
+
+def test_server_from_clean_settings_needs_nothing_else(tmp_path: Path) -> None:
+    create_server(Settings(data_dir=tmp_path / "raw", build_dir=tmp_path / "build"))
+
+
+def test_wrappers_and_dispatcher_share_one_signature(server: MCPServer) -> None:
+    assert tuple(_DISPATCH) == TOOL_NAMES
+    for name in TOOL_NAMES:
+        wrapper = inspect.signature(server._tool_manager.get_tool(name).fn)  # type: ignore[union-attr]
+        dispatched = inspect.signature(_DISPATCH[name])
+        params = list(dispatched.parameters.values())[1:]  # drop ``service``
+        assert [(p.name, p.default, p.annotation) for p in wrapper.parameters.values()] == [
+            (p.name, p.default, p.annotation) for p in params
+        ], name
+        assert wrapper.return_annotation == dispatched.return_annotation, name

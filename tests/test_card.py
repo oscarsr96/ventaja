@@ -1,5 +1,6 @@
 """Tests for the player and team cards: artifacts, round trip, lookup, loaders and CLI."""
 
+import shutil
 from pathlib import Path
 
 import polars as pl
@@ -10,7 +11,10 @@ from ventaja.cli import app
 from ventaja.config import Settings
 from ventaja.data import load as load_module
 from ventaja.data.load import (
+    ARTIFACTS_DIR,
+    decision_files,
     load_decisions,
+    load_games,
     load_meta,
     load_players_cards,
     load_teams_cards,
@@ -18,6 +22,7 @@ from ventaja.data.load import (
 from ventaja.errors import DataNotFoundError
 from ventaja.profile.aggregate import league_row
 from ventaja.profile.card import (
+    GAMES_SCHEMA,
     LEAGUE_ID,
     LEAGUE_NAME,
     PLAYERS_SCHEMA,
@@ -221,7 +226,7 @@ def test_artifact_files_players(fixture_players_built: Settings) -> None:
 def test_build_players_stamps_the_given_model(
     fixture_curves_built: Settings, trained_fixture_model: ValueModel, tmp_path: Path
 ) -> None:
-    players_path, teams_path = build_players(
+    players_path, teams_path, _ = build_players(
         fixture_curves_built, out_dir=tmp_path, model=trained_fixture_model
     )
     for path in (players_path, teams_path):
@@ -268,3 +273,29 @@ def test_league_row_mean_cost_matches_cards(fixture_players_built: Settings) -> 
     card = card_of(LEAGUE_ID, _players(fixture_players_built))
     assert card.mean_cost == pytest.approx(league["mean_cost"])
     assert card.clock["6-0"] == (league["n_6-0"], league["cost_6-0"])
+
+
+def test_build_players_writes_games(fixture_players_built: Settings) -> None:
+    games = load_games(fixture_players_built)
+    assert games.schema == GAMES_SCHEMA
+    assert games["game_id"].to_list() == [GAME_ID]
+    row = games.row(0, named=True)
+    assert row["home_team"] and row["away_team"] and row["date"] == row["date"][:10]
+    assert row["home_score"] > 0 and row["away_score"] > 0
+
+
+def test_load_games_missing_names_the_command(tmp_path: Path) -> None:
+    empty = Settings(data_dir=tmp_path / "raw", build_dir=tmp_path / "build")
+    # the build holds players.parquet only, so artifact_dir picks it and games.parquet is absent
+    (tmp_path / "build" / "players").mkdir(parents=True)
+    shutil.copy(ARTIFACTS_DIR / "players.parquet", tmp_path / "build" / "players")
+    with pytest.raises(DataNotFoundError, match="player build"):
+        load_games(empty)
+
+
+def test_packaged_games_cover_the_packaged_decisions(tmp_path: Path) -> None:
+    clean = Settings(data_dir=tmp_path / "raw", build_dir=tmp_path / "build")
+    games = load_games(clean)
+    assert games["game_id"].to_list() == sorted(int(p.stem) for p in decision_files(clean)[0])
+    assert games.schema == GAMES_SCHEMA
+    assert games["home_score"].min() > 0 and games["away_score"].min() > 0

@@ -15,3 +15,7 @@ class CorruptFileError(VentajaError):
 
 class NoTrackingError(VentajaError):
     """Tracking data is not available for the requested game or frame."""
+
+
+class AmbiguousQueryError(VentajaError):
+    """A name or id query matched no entity or more than one; the message lists candidates."""

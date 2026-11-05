@@ -11,6 +11,7 @@ from ventaja.cli import (
     data,
     decisions,
     frames,
+    mcp,
     model,
     player,
     review,
@@ -33,6 +34,7 @@ app.add_typer(frames.app, name="frames")
 app.add_typer(review.app, name="review")
 app.add_typer(reel_commands.app, name="reel")
 app.add_typer(player.app, name="player")
+app.add_typer(mcp.app, name="mcp")
 
 
 def _version_callback(value: bool) -> None:

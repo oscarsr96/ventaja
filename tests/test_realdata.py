@@ -219,7 +219,7 @@ def test_player_cards_cover_every_shooter(real_settings: Settings, tmp_path: Pat
     from ventaja.data.load import load_decisions
     from ventaja.profile.card import LEAGUE_ID, PLAYERS_SCHEMA, build_players
 
-    players_path, teams_path = build_players(real_settings, out_dir=tmp_path)
+    players_path, teams_path, _ = build_players(real_settings, out_dir=tmp_path)
     players = pl.read_parquet(players_path)
     assert dict(players.schema) == PLAYERS_SCHEMA
     shooters = players.filter(pl.col("player_id") != LEAGUE_ID)
