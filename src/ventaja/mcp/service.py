@@ -32,6 +32,8 @@ from ventaja.mcp.models import (
     BestAlternative,
     ClockBand,
     CurveSummaryOut,
+    Featured,
+    FeaturedShot,
     GameInfo,
     GameSide,
     Metrics,
@@ -53,6 +55,7 @@ from ventaja.mcp.models import (
 from ventaja.model.decision import Decision
 from ventaja.model.snapshot import PlayerPos
 from ventaja.profile.card import LEAGUE_ID, card_of, fold_name
+from ventaja.reel import rank_tables
 from ventaja.value.clock import clock_bucket_expr
 from ventaja.value.model import ValueModel
 from ventaja.value.params import (
@@ -131,6 +134,13 @@ class AskService:
         self.people: People = load_people(settings)
         self._known_players = self._carded_or_rostered()
         self._board: Board | None = None
+
+    @property
+    def board(self) -> Board:
+        """The what-if board, built on first use and shared by every caller."""
+        if self._board is None:
+            self._board = Board(self.settings, model=self.model, priors=self.priors)
+        return self._board
 
     def _carded_or_rostered(self) -> set[int]:
         ids = {int(i) for i in self.players["player_id"] if i != LEAGUE_ID}
@@ -465,24 +475,67 @@ class AskService:
         for r in shots.head(limit).iter_rows(named=True):
             if r["game_id"] not in periods:
                 periods[r["game_id"]] = self._periods(r["game_id"])
-            out.append(
-                ShotSummary(
-                    shot_id=r["shot_id"],
-                    game_id=r["game_id"],
-                    period=periods[r["game_id"]].get(r["shot_id"]),
-                    shot_clock=_round(r["shot_clock"]),
-                    shooter=self._player_ref(r["shooter_id"]),
-                    shot_value=_round(r["shot_value"]),
-                    best_alternative=self._best_alternative(
-                        r["best_alt_player_id"], r["best_alt_type"], r["best_alt_value"]
-                    ),
-                    cost=_round(r["cost"]),
-                    good_read=r["good_read"],
-                    verdict=r["verdict"],
-                    headline=r["headline_en"],
-                )
-            )
+            out.append(self._shot_summary(r, periods))
         return ShotList(total=shots.height, shots=out)
+
+    def _shot_summary(
+        self, r: dict[str, Any], periods: dict[int, dict[str, int | None]]
+    ) -> ShotSummary:
+        """A ``ShotSummary`` from a decisions row joined with ``verdict`` and ``headline_en``."""
+        if r["game_id"] not in periods:
+            periods[r["game_id"]] = self._periods(r["game_id"])
+        return ShotSummary(
+            shot_id=r["shot_id"],
+            game_id=r["game_id"],
+            period=periods[r["game_id"]].get(r["shot_id"]),
+            shot_clock=_round(r["shot_clock"]),
+            shooter=self._player_ref(r["shooter_id"]),
+            shot_value=_round(r["shot_value"]),
+            best_alternative=self._best_alternative(
+                r["best_alt_player_id"], r["best_alt_type"], r["best_alt_value"]
+            ),
+            cost=_round(r["cost"]),
+            good_read=r["good_read"],
+            verdict=r["verdict"],
+            headline=r["headline_en"],
+        )
+
+    def featured(self, n: int = 10) -> Featured:
+        """The ``n`` costliest, best-read and costliest-late-hold shots (the reel's rules).
+
+        Raises ``ValueError`` when ``n`` is below 1.
+        """
+        if n < 1:
+            raise ValueError(f"n must be at least 1; got {n}")
+        tables = rank_tables(self.decisions, self.summaries, None, None, n=n)
+        worst, best, late, low = tables
+        summaries = self.summaries.select(
+            "shot_id", "verdict", "headline_en", "window_handler_id"
+        ).unique(subset="shot_id", keep="first")
+        rows = {
+            r["shot_id"]: r
+            for r in self.decisions.join(summaries, on="shot_id", how="left").iter_rows(named=True)
+        }
+        periods: dict[int, dict[str, int | None]] = {}
+
+        def build(table: pl.DataFrame, metric: str) -> list[FeaturedShot]:
+            return [
+                FeaturedShot(
+                    rank=int(t["rank"]),
+                    metric=round(float(t[metric]), 3),
+                    shot=self._shot_summary(rows[t["shot_id"]], periods),
+                )
+                for t in table.iter_rows(named=True)
+            ]
+
+        worst_out = build(worst, "cost")
+        return Featured(
+            default_shot=worst_out[0].shot.shot_id if worst_out else None,
+            worst=worst_out,
+            best=build(best, "margin"),
+            late=build(late, "lost_value"),
+            low_confidence=int(low),
+        )
 
     def _valued_row(self, shot_id: str) -> dict[str, Any]:
         """The decisions row of a valued shot; says why when the shot is unknown or excluded."""
@@ -548,9 +601,7 @@ class AskService:
         if len(moves) > BOARD_MAX_MOVES:
             raise ValueError(f"at most {BOARD_MAX_MOVES} moves")
         self._valued_row(shot_id)
-        if self._board is None:
-            self._board = Board(self.settings, model=self.model, priors=self.priors)
-        board = self._board
+        board = self.board
         state = board.load(shot_id)
         before = state.original
         applied: list[AppliedMove] = []

@@ -23,6 +23,7 @@ from ventaja.mcp.service import (
     RankKey,
     VerdictName,
 )
+from ventaja.reel import rank_tables
 from ventaja.value.params import (
     BOARD_MAX_MOVES,
     MCP_DEFAULT_LIMIT,
@@ -265,3 +266,22 @@ def test_what_if_resolves_player_by_name_and_rejects_strangers(service: AskServi
         service.what_if("shot-114243-1-0", [Move(player="1", x=0.0, y=0.0)] * (BOARD_MAX_MOVES + 1))
     with pytest.raises(pydantic.ValidationError):
         Move(player="1", x=float("nan"), y=0.0)
+
+
+def test_featured_matches_reel_rules(service: AskService) -> None:
+    feat = service.featured(n=5)
+    worst, best, late, low = rank_tables(service.decisions, service.summaries, None, None, n=5)
+    assert [f.shot.shot_id for f in feat.worst] == worst["shot_id"].to_list()
+    assert [f.shot.shot_id for f in feat.best] == best["shot_id"].to_list()
+    assert [f.shot.shot_id for f in feat.late] == late["shot_id"].to_list()
+    assert feat.default_shot == worst["shot_id"][0] == "shot-191313-1-31"
+    assert feat.worst[0].metric == round(worst["cost"][0], 3) and feat.low_confidence == low
+    assert all(f.shot.shooter.name for f in feat.worst + feat.best + feat.late)
+    with pytest.raises(ValueError):
+        service.featured(n=0)
+
+
+def test_board_property_is_shared_with_what_if(service: AskService) -> None:
+    board = service.board
+    service.what_if("shot-114243-1-0", [])
+    assert service.board is board

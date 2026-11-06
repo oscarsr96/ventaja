@@ -5,6 +5,7 @@ comes from ``AskService``. ``call_tool`` is the one validated dispatcher, used b
 wrapper and by the ``ventaja mcp call`` command.
 """
 
+import asyncio
 from collections.abc import Callable, Mapping
 from importlib.resources import files
 from string import Template
@@ -53,7 +54,14 @@ from ventaja.value.params import (
 )
 from ventaja.value.priors import Priors
 
-__all__ = ["GLOSSARY_URI", "TOOL_NAMES", "call_tool", "create_server", "render_glossary"]
+__all__ = [
+    "GLOSSARY_URI",
+    "TOOL_NAMES",
+    "call_tool",
+    "create_server",
+    "render_glossary",
+    "tool_schemas",
+]
 
 TOOL_NAMES = (
     "list_games",
@@ -230,11 +238,31 @@ def _run(service: AskService, name: str, arguments: Mapping[str, Any]) -> Any:
         raise ToolError(str(exc)) from exc
 
 
+def tool_schemas(server: MCPServer) -> list[dict[str, Any]]:
+    """Name, description and input schema of each tool, in ``TOOL_NAMES`` order."""
+    tools = {t.name: t for t in asyncio.run(server.list_tools())}
+    return [
+        {
+            "name": name,
+            "description": tools[name].description,
+            "input_schema": tools[name].input_schema,
+        }
+        for name in TOOL_NAMES
+    ]
+
+
 def create_server(
-    settings: Settings, *, model: ValueModel | None = None, priors: Priors | None = None
+    settings: Settings,
+    *,
+    model: ValueModel | None = None,
+    priors: Priors | None = None,
+    service: AskService | None = None,
 ) -> MCPServer:
-    """The ``ventaja`` MCP server over the packaged artifacts (no key, env var or download)."""
-    service = AskService(settings, model=model, priors=priors)
+    """The ``ventaja`` MCP server over the packaged artifacts (no key, env var or download).
+
+    An injected ``service`` is used as is (``model`` and ``priors`` are then ignored).
+    """
+    service = service or AskService(settings, model=model, priors=priors)
     server = MCPServer("ventaja", instructions=INSTRUCTIONS)
 
     @server.tool(
