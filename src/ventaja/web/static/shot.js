@@ -123,7 +123,6 @@ export function leave() { stop(); }   // the router calls this when another view
 
 export async function update(state) {
   const mine = ++token;
-  if (state.view !== 'shot') { stop(); return; }
   await mount.loading;
   try { await boardReady; } catch (e) { /* the board reports its own load error */ }
   if (mine !== token) return;
@@ -132,6 +131,7 @@ export async function update(state) {
   const fallbackId = shots.length && !shots.some((x) => x.shot_id === dflt) ? shots[0].shot_id : dflt;
   const id = state.shot || fallbackId;
   if (!id) { setStatus('No valued shots to show.', true); return; }
+  if (id !== getState().shotId) stop();   // a new shot must not inherit a scrubbed frame
   const err = await showShot(id);
   if (mine !== token || !err) return;
   const fallback = fallbackId;

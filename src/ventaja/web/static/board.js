@@ -221,8 +221,8 @@ function drawBoard(p) {
 // Show one recorded frame {t, players: [[id, x, y]], ball: [x, y, z] | null}; null restores the decision position.
 export function showFrame(frame) {
   if (!frame) {
-    playback = false; lastFrame = null;
-    if (payload && nodes.size) drawBoard(payload);
+    playback = false; lastFrame = null;   // cleared first: render() must not take its playback branch
+    if (payload && nodes.size) render();    // header and table pick up a move that arrived during playback
     if (ballEl) ballEl.setAttribute('r', 0.8);
     return;
   }

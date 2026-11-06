@@ -319,6 +319,16 @@ def test_play_404s(pkg_client: TestClient, service: AskService) -> None:
         assert r.status_code == 404 and needle in r.json()["error"], shot_id
 
 
+def test_play_404_for_a_valued_shot_without_a_play(
+    pkg_client: TestClient, service: AskService
+) -> None:
+    shot_id = "shot-184439-2-71"  # valued, but its possession leaves no curve window
+    valued = service.decisions.filter(pl.col("shot_id") == shot_id)
+    assert valued.height == 1 and valued["rule"][0] != "excluded"
+    r = pkg_client.get(f"/api/play/{shot_id}")
+    assert r.status_code == 404 and "has no play" in r.json()["error"]
+
+
 def test_play_without_table_hints_the_build(tmp_path: Path) -> None:
     settings = decisions_for_all_frames_for_one(tmp_path)  # decisions + frames of 114243
     (settings.build_dir / "plays").mkdir()  # a main table of another game hides the packaged ones

@@ -66,7 +66,7 @@ function draw(c) {
       prev = r.handler_id;
     }
   }
-  plot = { svg: svg, sx: sx };
+  plot = { svg: svg, sx: sx, t0: t0, t1: t1 };
   return svg;
 }
 
@@ -107,7 +107,7 @@ export function setCursor(t) {
   const old = plot.svg.querySelector('[data-cursor]');
   if (old) old.remove();
   if (t === null || t === undefined || Number.isNaN(t)) return;
-  const x = plot.sx(t);
+  const x = plot.sx(Math.min(plot.t1, Math.max(plot.t0, t)));   // stay inside the plot
   plot.svg.appendChild(el('line', { x1: x, y1: T, x2: x, y2: H - B, stroke: '#2457a6', 'stroke-width': 1.5, 'data-cursor': '1', 'pointer-events': 'none' }));
 }
 

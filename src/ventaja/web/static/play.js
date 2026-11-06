@@ -3,9 +3,11 @@ import { api } from '/static/app.js';
 import { showFrame } from '/static/board.js';
 import { setCursor } from '/static/curve.js';
 
+const DRAG_HINT = 'Press Decision to move players';
 const NO_DATA = 'No play data: run `ventaja frames build` with the tracking.';
-const EPS = 0.02;                    // half a frame: closer than this to decision_t counts as the decision
-let ui = null;                       // {bar, btn, dec, range, tLbl, cLbl, msg}
+const EPS = 0.02;                    // half a frame: end-of-play detection
+const SNAP = 0.021;                  // half a slider step plus float slack: closer than this to decision_t is the decision
+let ui = null;                       // {bar, btn, dec, range, tLbl, cLbl, msg, drag}
 let play = null;                     // the loaded /api/play payload, or null
 let t = 0;                           // current playback time, seconds relative to release
 let raf = 0, playing = false, token = 0;
@@ -33,15 +35,15 @@ function setPlaying(on) {
 // Show time v. `live` (inside the animation loop) never snaps to the decision position.
 function seek(v, live) {
   if (!play || !play.frames.length) return;
+  const atDecision = !live && Math.abs(v - play.decision_t) <= SNAP;   // compared before clamping
   t = Math.min(play.t1, Math.max(play.t0, v));
   ui.range.value = String(t);
   const fr = nearest(play.frames, t);
   ui.tLbl.textContent = fmtT(t);
   ui.cLbl.textContent = fr.clock === null || fr.clock === undefined ? 'clock unknown' : 'shot clock ' + fr.clock.toFixed(1) + ' s';
-  if (!live && Math.abs(t - play.decision_t) <= EPS) {
-    t = play.decision_t;
-    showFrame(null); setCursor(play.decision_t);
-  } else { showFrame(fr); setCursor(t); }
+  if (atDecision) { t = play.decision_t; showFrame(null); setCursor(t); }
+  else { showFrame(fr); setCursor(t); }
+  ui.drag.textContent = atDecision ? '' : DRAG_HINT;
 }
 function tick(now0) {
   let last = now0;
@@ -71,12 +73,19 @@ export function mountPlay(host) {
   const range = document.createElement('input');
   range.type = 'range'; range.step = '0.04'; range.min = '0'; range.max = '1'; range.value = '0';
   range.setAttribute('aria-label', 'Time in the possession');
-  const tLbl = box('span', '', 'k'), cLbl = box('span', '', 'k'), msg = box('span', '', 'hint');
-  for (const e of [btn, dec, range, tLbl, cLbl, msg]) bar.appendChild(e);
+  const tLbl = box('span', '', 'k'), cLbl = box('span', '', 'k'), msg = box('span', '', 'hint'), drag = box('span', '', 'hint');
+  const ticks = document.createElement('datalist'); ticks.id = 'decisionTick';
+  ticks.appendChild(document.createElement('option'));
+  range.setAttribute('list', ticks.id);
+  for (const e of [btn, dec, range, ticks, tLbl, cLbl, drag, msg]) bar.appendChild(e);
   host.appendChild(bar);
-  ui = { bar: bar, btn: btn, dec: dec, range: range, tLbl: tLbl, cLbl: cLbl, msg: msg };
+  ui = { bar: bar, btn: btn, dec: dec, range: range, tLbl: tLbl, cLbl: cLbl, msg: msg, drag: drag, tick: ticks.firstChild };
   btn.addEventListener('click', toggle);
-  dec.addEventListener('click', () => { if (!play) return; setPlaying(false); seek(play.decision_t); });
+  dec.addEventListener('click', () => {
+    if (!play) return;
+    setPlaying(false); seek(play.decision_t);
+    showFrame(null); setCursor(play.decision_t);   // always back to drag mode, whatever the clamping did
+  });
   range.addEventListener('input', () => { if (!play) return; setPlaying(false); seek(Number(range.value)); });
   setEnabled(false);
 }
@@ -86,7 +95,7 @@ export async function loadPlay(shotId) {
   const mine = ++token;
   stop();
   play = null; setEnabled(false);
-  ui.msg.textContent = ''; ui.tLbl.textContent = ''; ui.cLbl.textContent = '';
+  ui.msg.textContent = ''; ui.drag.textContent = ''; ui.tLbl.textContent = ''; ui.cLbl.textContent = '';
   let p;
   try { p = await api('/api/play/' + encodeURIComponent(shotId)); }
   catch (e) {
@@ -97,6 +106,7 @@ export async function loadPlay(shotId) {
   if (!p || !Array.isArray(p.frames) || !p.frames.length) { ui.msg.textContent = NO_DATA; return; }
   play = p;
   ui.range.min = String(p.t0); ui.range.max = String(p.t1);
+  ui.tick.value = String(p.decision_t);
   setEnabled(true);
   setPlaying(false);
   seek(p.decision_t);
@@ -108,7 +118,7 @@ export function stop() {
   showFrame(null);
   setCursor(null);
   if (play && ui) {   // the board is back at the decision: make the bar say so too
-    t = play.decision_t; ui.range.value = String(t); ui.tLbl.textContent = fmtT(t);
+    ui.drag.textContent = ''; t = play.decision_t; ui.range.value = String(t); ui.tLbl.textContent = fmtT(t);
     const fr = nearest(play.frames, t);
     ui.cLbl.textContent = fr.clock === null || fr.clock === undefined ? 'clock unknown' : 'shot clock ' + fr.clock.toFixed(1) + ' s';
   }
