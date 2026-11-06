@@ -49,7 +49,7 @@ def test_index_served(client: TestClient) -> None:
 
 
 def test_index_has_view_structure(client: TestClient) -> None:
-    text = client.get("/").text
+    text = client.get("/static/board.js").text
     for marker in ('id="viewSel"', "id: 'ground'", "id: 'figures'"):
         assert marker in text
 
@@ -194,14 +194,30 @@ def test_cli_board_opens_browser_once_listening(
     assert opened == ["http://127.0.0.1:8798/"]
 
 
-def test_index_page_static_contract(client: TestClient) -> None:
+def test_static_files_are_wired_and_small(client: TestClient) -> None:
     html = client.get("/").text
-    for needle in ('id="court"', "fetch('/api/shots')", "pointerdown", "/evaluate"):
-        assert needle in html
-    assert "<script src=" not in html
-    assert "<link " not in html
-    index = Path(__file__).parent.parent / "src" / "ventaja" / "web" / "static" / "index.html"
-    assert len(index.read_text(encoding="utf-8").splitlines()) <= 600
+    assert '<script type="module" src="/static/app.js">' in html and "/static/app.css" in html
+    assert "<script>" not in html
+    names = (
+        "app.js",
+        "board.js",
+        "shot.js",
+        "curve.js",
+        "players.js",
+        "games.js",
+        "ask.js",
+        "about.js",
+        "app.css",
+    )
+    for name in names:
+        r = client.get(f"/static/{name}")
+        assert r.status_code == 200, name
+        assert r.headers["content-type"].startswith(
+            "text/javascript" if name.endswith(".js") else "text/css"
+        )
+        assert len(r.text.splitlines()) <= 600, name
+    for view in ("shot", "players", "games", "ask", "about"):
+        assert f'data-view="{view}"' in html
 
 
 def test_shots_endpoint_with_more_decisions_than_frames(tmp_path: Path) -> None:
