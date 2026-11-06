@@ -11,9 +11,8 @@ from fastapi import Body, FastAPI, HTTPException, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import HTMLResponse, JSONResponse, PlainTextResponse
 from fastapi.staticfiles import StaticFiles
-from starlette.responses import Response
-from starlette.types import Scope
 from pydantic import BaseModel, ConfigDict, Field, FiniteFloat, ValidationError
+from starlette.responses import Response
 
 from ventaja import __version__
 from ventaja.board.engine import Board, court_payload
@@ -90,7 +89,8 @@ def create_app(
 ) -> FastAPI:
     """Build the service and the board eagerly and the app around them.
 
-    ``games`` restricts the board's shot list, default shot and Games view. Missing artifacts raise a ``VentajaError``.
+    ``games`` restricts the board's shot list, default shot and Games view.
+    Missing artifacts raise a ``VentajaError``.
     """
     if not frame_files(settings):
         raise VentajaError(_NO_FRAMES)
