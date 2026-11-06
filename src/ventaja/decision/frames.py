@@ -151,10 +151,12 @@ def build_plays(game_id: int, settings: Settings, *, out_dir: Path | None = None
     """Write ``{game_id}.parquet`` (``PLAY_SCHEMA``): the whole possession of every valued shot.
 
     Valued shots are the rows of ``load_decisions`` with ``rule != "excluded"`` that also have
-    curves. Each play runs from the first frame of the shot's curve to one second after the
-    release (25 fps, every tracked frame), keeping only the frames of the shot's own possession
-    (the tail may spill into the next one, whose orientation is flipped). Written zstd-compressed
-    to ``out_dir`` (default: the build's ``plays/``). Returns the path.
+    curves. Each play runs from the first frame of the shot's curve (or the decision frame, if
+    earlier) to one second after the release (25 fps, every tracked frame), keeping only the
+    frames of the shot's own possession (the tail may spill into the next one, whose orientation
+    is flipped) plus the decision frame, even when it lies outside the possession's span (a shot
+    with no tracked frame in its possession has no play). Written zstd-compressed to ``out_dir``
+    (default: the build's ``plays/``). Returns the path.
 
     Raises ``DataNotFoundError`` (naming ``ventaja curves build``) without the curves table.
     """
@@ -163,13 +165,23 @@ def build_plays(game_id: int, settings: Settings, *, out_dir: Path | None = None
     aligner = Aligner(game_id, settings)
     valued = load_decisions(game_id, settings).filter(pl.col("rule") != "excluded")
     rows: list[dict[str, Any]] = []
-    for shot_id, release in valued.select("shot_id", "release_frame").iter_rows():
+    for shot_id, release, decision in valued.select(
+        "shot_id", "release_frame", "decision_frame"
+    ).iter_rows():
         if shot_id not in starts:
             continue
-        possession = aligner.snapshot_for_shot(shot_id, decision=True).possession_id
-        for snap in aligner.window(starts[shot_id], release + FPS):
-            if snap.possession_id == possession:
-                rows.extend(_play_rows(shot_id, snap, release))
+        at_decision = aligner.snapshot_for_shot(shot_id, decision=True)
+        start = min(starts[shot_id], decision)
+        snaps = [
+            snap
+            for snap in aligner.window(start, release + FPS)
+            if snap.possession_id == at_decision.possession_id
+        ]
+        if snaps and all(snap.frame_idx != decision for snap in snaps):
+            # a few decision frames fall outside their possession's span: the play still holds it
+            snaps = sorted([*snaps, at_decision], key=lambda snap: snap.frame_idx)
+        for snap in snaps:
+            rows.extend(_play_rows(shot_id, snap, release))
     out = out_dir if out_dir is not None else settings.plays_parquet(game_id).parent
     path = out / f"{game_id}.parquet"
     write_parquet_atomic(pl.DataFrame(rows, schema=PLAY_SCHEMA), path, compression="zstd")

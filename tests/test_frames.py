@@ -180,6 +180,46 @@ def test_build_plays_covers_the_possession(fixture_curves_built: Settings) -> No
     assert load_plays(GAME_ID, fixture_curves_built).height == plays.height
 
 
+def test_build_plays_decision_frame_is_inside_the_play(fixture_curves_built: Settings) -> None:
+    plays = pl.read_parquet(build_plays(GAME_ID, fixture_curves_built))
+    ranges = {
+        k[0]: (v["frame_idx"].min(), v["frame_idx"].max())
+        for k, v in plays.partition_by("shot_id", as_dict=True).items()
+    }
+    assert ranges
+    for shot_id, decision, release in (
+        _valued(fixture_curves_built)
+        .select("shot_id", "decision_frame", "release_frame")
+        .iter_rows()
+    ):
+        if shot_id in ranges:
+            first, last = ranges[shot_id]
+            assert first <= decision <= release <= last, shot_id
+
+
+def test_build_plays_cuts_the_next_possession(fixture_curves_built: Settings) -> None:
+    plays = pl.read_parquet(build_plays(GAME_ID, fixture_curves_built))
+    aligner = Aligner(GAME_ID, fixture_curves_built)
+    spilled = 0
+    for shot_id, release in (
+        _valued(fixture_curves_built).select("shot_id", "release_frame").iter_rows()
+    ):
+        frames = plays.filter(pl.col("shot_id") == shot_id)["frame_idx"].unique()
+        if frames.is_empty():
+            continue
+        possession = aligner.snapshot_for_shot(shot_id, decision=True).possession_id
+        tail = list(aligner.window(frames.min(), release + FPS))
+        other = {s.frame_idx for s in tail if s.possession_id != possession}
+        spilled += bool(other)
+        assert not other & set(frames.to_list()), shot_id  # no frame of another possession
+        kept = {s.frame_idx for s in tail if s.possession_id == possession}
+        decision = _valued(fixture_curves_built).filter(pl.col("shot_id") == shot_id)[
+            "decision_frame"
+        ][0]
+        assert set(frames.to_list()) == kept | {decision}, shot_id
+    assert spilled > 0  # the fixture has a shot whose tail leaves the possession
+
+
 def test_build_plays_needs_curves(
     fixture_curves_built: Settings, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

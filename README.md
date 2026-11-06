@@ -9,7 +9,7 @@ Raw SkillCorner data and the tidy parquet build live outside the repo, in two di
 - `VENTAJA_DATA_DIR`: raw data in the SkillCorner layout (default `~/.cache/ventaja/raw`).
 - `VENTAJA_BUILD_DIR`: tidy parquet build (default `~/.cache/ventaja/build`).
 
-To reuse a clone of the SkillCorner open data, point `VENTAJA_DATA_DIR` at its `data/` folder.
+To reuse a clone of [SkillCorner/opendata-basketball](https://github.com/SkillCorner/opendata-basketball), point `VENTAJA_DATA_DIR` at its `data/` folder.
 
 ```bash
 uv run ventaja data pull --game 114243     # or --all (~380 MB)
@@ -94,7 +94,7 @@ Suele tener un pase mejor disponible; la opción que más deja pasar es el pase 
 uv run ventaja app
 ```
 
-One local page opens on the Shot view: the whiteboard beside the advantage curve of the same possession, for the worst valued decision by the reel's rule. A player plays the whole possession at 25 fps with a cursor on the curve; dragging happens at the decision frame (2.5D by default, 2D toggle), where the values recompute at once while the curve, which values the real possession, stays still. Then Players, Games, Ask (MCP tools as forms) and About. It runs from packaged artifacts, with no tracking download. Method and limits: [ADR-0009](docs/decisions/0009-pizarra.md) (whiteboard), [ADR-0011](docs/decisions/0011-app-unificada.md) (app), [ADR-0012](docs/decisions/0012-jugadas-completas.md) (plays).
+One local page opens on the Shot view: the whiteboard beside the advantage curve of the same possession, for the worst valued decision by the reel's rule. The Shot view plays the whole possession at 25 fps with a cursor on the curve; dragging happens at the decision frame (2.5D by default, 2D toggle), where the values recompute at once while the curve, which values the real possession, stays still. Then Players, Games, Ask (MCP tools as forms) and About. It runs from packaged artifacts, no tracking download. Method and limits: [ADR-0009](docs/decisions/0009-pizarra.md) (whiteboard), [ADR-0011](docs/decisions/0011-app-unificada.md) (app), [ADR-0012](docs/decisions/0012-jugadas-completas.md) (plays).
 
 ![Whiteboard with the shooter dragged into the restricted area](docs/figures/board-shot-114243-3-108.jpg)
 
