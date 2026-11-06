@@ -16,13 +16,15 @@ EXPECTED_COMMANDS = {
     "player": {"build", "show", "rank", "team"},
     "mcp": {"serve", "call", "tools"},
 }
-EXPECTED_TOP_LEVEL = {"sql", "snapshot", "clip", "board"}
+EXPECTED_TOP_LEVEL = {"sql", "snapshot", "clip", "app", "board"}
 
 # Command lines of `--help`, captured before cli.py was split into a package.
 ROOT_HELP = [
     "sql Run SQL against the built parquet files through DuckDB.",
     "snapshot Print the offense-oriented snapshot at a shot's frame; the shooter is marked *.",
     "clip Animate a shot's possession (court) with its advantage curve underneath, as a GIF.",
+    "app Serve the ventaja app: shot, whiteboard, curve, players, games and the MCP tools in one page.",  # noqa: E501
+    "board Alias of `ventaja app` (kept for the whiteboard users).",
     "data Download, inspect and build SkillCorner data.",
     "validate Check the event model against official data.",
     "model Train and inspect the value model.",
