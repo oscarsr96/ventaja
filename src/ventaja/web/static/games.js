@@ -46,7 +46,7 @@ async function renderShots(gameId, mine) {
   if (!shots.length) c.appendChild(h('p', 'No valued shots in this game.', 'hint'));
   const rows = shots.map((s) => ({
     id: s.shot_id,
-    cells: [s.shooter || s.shooter_id, s.team || '-', 'P' + s.period, s.shot_clock === null || s.shot_clock === undefined ? '-' : fmt.num(s.shot_clock, 1),
+    cells: [s.shooter || s.shooter_id, s.team || '-', (s.period === null || s.period === undefined ? '-' : 'P' + s.period), s.shot_clock === null || s.shot_clock === undefined ? '-' : fmt.num(s.shot_clock, 1),
       fmt.num(s.cost, 3), s.good_read === null || s.good_read === undefined ? '-' : (s.good_read ? 'yes' : 'no'), s.headline_en || ''],
   }));
   c.appendChild(table(['Shooter', 'Team', 'Period', 'Clock', 'Cost', 'Good read', 'Headline'], rows, (id) => navigate({ shot: id }), [0, 1, 6]));

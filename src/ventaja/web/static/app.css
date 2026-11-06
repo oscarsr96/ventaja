@@ -6,7 +6,7 @@
   nav { display:flex; gap:4px; flex-wrap:wrap; border-bottom:1px solid var(--line); padding-bottom:6px; }
   nav a { padding:5px 12px; border-radius:6px; color:var(--muted); text-decoration:none; font-weight:600; }
   nav a:hover { color:var(--ink); } nav a.active { background:var(--accent); color:#fff; }
-  section[hidden] { display:none; }
+  section[data-view][hidden] { display:none !important; }
   #boardHost { display:flex; flex-direction:column; gap:10px; min-width:0; }
   #clip img { max-width:100%; display:block; margin:0 auto; }
   #others { list-style:none; margin:4px 0 0; padding:0; max-height:260px; overflow:auto; }

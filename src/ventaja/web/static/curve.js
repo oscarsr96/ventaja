@@ -49,7 +49,9 @@ function draw(c) {
     const ln = el('line', { x1: x, y1: T, x2: x, y2: H - B, stroke: '#c62828', 'stroke-width': 1.2 });
     if (dash) ln.setAttribute('stroke-dasharray', dash);
     svg.appendChild(ln);
-    svg.appendChild(el('text', { x: x - 3, y: T - 5, 'text-anchor': 'end', 'font-size': 10, fill: '#c62828' }, label));
+    // decision sits left of its line, release right of its line (anchored inside the plot), so they never overlap
+    const right = label === 'release';
+    svg.appendChild(el('text', { x: right ? Math.min(x + 3, W - R) : x - 3, y: T - 5, 'text-anchor': right ? 'start' : 'end', 'font-size': 10, fill: '#c62828' }, label));
   }
   svg.appendChild(el('path', { d: path(rows, 'handler_shot_value', sx, sy), fill: 'none', stroke: SHOOTER, 'stroke-width': 2 }));
   svg.appendChild(el('path', { d: path(rows, 'best_pass_value', sx, sy), fill: 'none', stroke: PASS, 'stroke-width': 2 }));
@@ -89,7 +91,6 @@ export async function showCurve(host, shotId) {
   if (mine !== token) return;
   drawn = shotId; host.textContent = '';
   const card = document.createElement('div'); card.className = 'card';
-  if (c.summary && c.summary.headline_en) { const p = document.createElement('p'); p.style.margin = '0 0 6px'; p.textContent = c.summary.headline_en; card.appendChild(p); }
   card.appendChild(draw(c)); card.appendChild(legend());
   const note = document.createElement('p'); note.className = 'hint';
   note.textContent = 'The curve values the real possession; moves on the board do not change it.';

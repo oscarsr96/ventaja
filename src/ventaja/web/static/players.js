@@ -100,7 +100,7 @@ async function renderProfile(id, mine) {
   const sc = card('Shots of this player (' + shots.total + ')');
   if (!shots.shots.length) sc.appendChild(h('p', 'No valued shots.', 'hint'));
   sc.appendChild(table(['Period', 'Clock', 'Cost', 'Good read', 'Verdict', 'Headline'],
-    shots.shots.map((x) => ({ id: x.shot_id, cells: ['P' + x.period, x.shot_clock === null || x.shot_clock === undefined ? '-' : fmt.num(x.shot_clock, 1), fmt.num(x.cost, 3), x.good_read === null || x.good_read === undefined ? '-' : (x.good_read ? 'yes' : 'no'), x.verdict || '-', x.headline || ''] })),
+    shots.shots.map((x) => ({ id: x.shot_id, cells: [(x.period === null || x.period === undefined ? '-' : 'P' + x.period), x.shot_clock === null || x.shot_clock === undefined ? '-' : fmt.num(x.shot_clock, 1), fmt.num(x.cost, 3), x.good_read === null || x.good_read === undefined ? '-' : (x.good_read ? 'yes' : 'no'), x.verdict || '-', x.headline || ''] })),
     (shotId) => navigate({ shot: shotId })));
   profBox.appendChild(sc);
 }
