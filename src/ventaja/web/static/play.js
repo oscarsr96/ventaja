@@ -90,7 +90,7 @@ export async function loadPlay(shotId) {
   let p;
   try { p = await api('/api/play/' + encodeURIComponent(shotId)); }
   catch (e) {
-    if (mine === token) ui.msg.textContent = NO_DATA;
+    if (mine === token) ui.msg.textContent = /frames build|HTTP 404/.test(e.message) ? NO_DATA : 'Could not load the play: ' + e.message;
     return;
   }
   if (mine !== token) return;

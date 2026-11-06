@@ -27,6 +27,7 @@ let seq = 0;                         // request sequence counter; only the newes
 let timer = null;                    // debounce timer
 const nodes = new Map();             // player_id -> {g, circle, num, lbl}
 let arrow = null, ballEl = null, ground = null, figures = null, shadows = null, bcLbl = null;
+let lastFrame = null;                // last frame shown by showFrame, re-applied by render() during playback
 let playback = false;                // true while a recorded frame is on the board: dragging is off
 let view = '2.5D';                   // '2.5D' | '2D', remembered in localStorage
 
@@ -158,6 +159,7 @@ function currentPos(pl) {
 
 function render() {
   if (!payload) return;
+  if (playback) { showFrame(lastFrame); return; }
   const optBy = drawBoard(payload);
   onPayload(payload, optBy);
 }
@@ -219,13 +221,13 @@ function drawBoard(p) {
 // Show one recorded frame {t, players: [[id, x, y]], ball: [x, y, z] | null}; null restores the decision position.
 export function showFrame(frame) {
   if (!frame) {
-    playback = false;
+    playback = false; lastFrame = null;
     if (payload && nodes.size) drawBoard(payload);
     if (ballEl) ballEl.setAttribute('r', 0.8);
     return;
   }
   if (!nodes.size) return;
-  playback = true;
+  playback = true; lastFrame = frame;
   for (const [id, x, y] of frame.players || []) place(id, x, y);
   for (const n of nodes.values()) n.ring.setAttribute('display', 'none');
   arrow.setAttribute('visibility', 'hidden');

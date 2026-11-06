@@ -97,7 +97,7 @@ function onPayload(p, optBy) {
   renderHeader(p); renderHeadline(p); renderTable(p, optBy);
   renderClip(p); renderOthers(p);
   showCurve($('curve'), p.shot_id);   // no-op unless the shot changed
-  if (p.shot_id !== playShot) { playShot = p.shot_id; stop(); loadPlay(p.shot_id); }   // moves keep the same play
+  if (p.shot_id !== playShot) { playShot = p.shot_id; loadPlay(p.shot_id); }   // moves keep the same play
   const sel = $('featuredSel'); if (sel) sel.value = [...sel.options].some((o) => o.value === p.shot_id) ? p.shot_id : '';
 }
 
