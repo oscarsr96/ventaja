@@ -23,13 +23,14 @@ export async function api(path, { method = 'GET', body } = {}) {
   return json;
 }
 
-export function parseHash(hash) {
+function parseHash(hash) {
   const next = { view: 'shot', shot: '', player: '', game: '', ask: '' };
   const parts = hash.replace(/^#/, '').split('&').filter(Boolean);
   parts.forEach((part, i) => {
-    const [k, v = ''] = part.split('=').map(decodeURIComponent);
+    let k, v;
+    try { [k, v = ''] = part.split('=').map(decodeURIComponent); } catch (e) { return; }   // malformed %-escape: ignore the part
     if (i === 0 && VIEWS.includes(k)) { next.view = k; if (KEYS[k]) next[k] = v; }
-    else if (k in next && k !== 'view') next[k] = v;
+    else if (Object.hasOwn(next, k) && k !== 'view') next[k] = v;
   });
   return next;
 }

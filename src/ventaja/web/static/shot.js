@@ -1,6 +1,6 @@
 // The Shot view: header, headline, options table, clip, featured list and the other shots of the game.
 import { mountBoard, showShot, getState, setStatus, jersey, viridis, hasJersey, f, h } from '/static/board.js';
-import { api, navigate } from '/static/app.js';
+import { api, navigate, fmt } from '/static/app.js';
 
 const $ = (id) => document.getElementById(id);
 const FEATURED_LABELS = { worst: 'Worst decisions', best: 'Best reads', late: 'Lost moments' };
@@ -69,7 +69,7 @@ function renderFeatured() {
     const g = document.createElement('optgroup'); g.label = FEATURED_LABELS[key];
     for (const it of featured[key] || []) {
       const o = document.createElement('option'); o.value = it.shot.shot_id;
-      o.textContent = '#' + it.rank + ' ' + it.shot.shooter.name + ' — ' + it.metric;
+      o.textContent = '#' + it.rank + ' ' + (it.shot.shooter.name || 'player ' + it.shot.shooter.player_id) + ' — ' + fmt.num(it.metric, 2);
       g.appendChild(o);
     }
     sel.appendChild(g);
@@ -90,6 +90,8 @@ function renderOthers(p) {
 }
 function onPayload(p, optBy) {
   current = p;
+  const link = document.querySelector('nav a[data-nav="shot"]');
+  if (link) link.setAttribute('href', '#shot=' + encodeURIComponent(p.shot_id));   // Shot tab keeps the current shot
   renderHeader(p); renderHeadline(p); renderTable(p, optBy);
   renderClip(p); renderOthers(p);
   const sel = $('featuredSel'); if (sel) sel.value = [...sel.options].some((o) => o.value === p.shot_id) ? p.shot_id : '';

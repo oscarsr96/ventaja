@@ -1,5 +1,7 @@
 // The whiteboard: SVG court, 2.5D projection, drag-to-move players, undo/reset.
 // Moved from the former single-page index.html; header, table and headline now live in shot.js.
+import { api } from '/static/app.js';
+
 const NS = 'http://www.w3.org/2000/svg';
 const R = 1.5;                       // player radius, feet
 const V_LO = 0.6, V_HI = 1.5;        // fixed colour scale, same as the GIFs
@@ -22,7 +24,6 @@ let dragId = null;                   // player being dragged right now
 let grab = { dx: 0, dy: 0 };         // pointer-to-centre offset at pointerdown
 let lastPost = 0;                    // time of the last evaluate, for the leading-edge throttle
 let seq = 0;                         // request sequence counter; only the newest response is applied
-let loadError = null;               // message of the last failed loadShot
 let timer = null;                    // debounce timer
 const nodes = new Map();             // player_id -> {g, circle, num, lbl}
 let arrow = null, ballEl = null, ground = null, figures = null, shadows = null, bcLbl = null;
@@ -55,17 +56,6 @@ function setStatus(msg, info) {
   const s = $('status');
   s.textContent = msg || '';
   s.className = info ? 'info' : '';
-}
-export async function request(url, opts) { return parse(await fetch(url, opts)); }
-async function parse(resp) {
-  let body = null;
-  try { body = await resp.json(); } catch (e) { body = null; }
-  if (!resp.ok) {
-    let d = body && body.detail;
-    if (Array.isArray(d)) d = d.map((x) => (x.loc ? x.loc.join('.') + ': ' : '') + x.msg).join('; ');
-    throw new Error(d || ('HTTP ' + resp.status));
-  }
-  return body;
 }
 
 /* ---------- court (static lines, y flipped so +y is up) ---------- */
@@ -270,9 +260,7 @@ async function evaluate() {
   lastPost = Date.now();
   const body = { moves: Array.from(moves, ([player_id, q]) => ({ player_id: player_id, x: q.x, y: q.y })) };
   try {
-    const p = await request('/api/shot/' + encodeURIComponent(shotId) + '/evaluate', {
-      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
-    });
+    const p = await api('/api/shot/' + encodeURIComponent(shotId) + '/evaluate', { method: 'POST', body: body });
     if (mine !== seq) return;                  // a newer request is in flight
     for (const m of p.moves) if (moves.has(m.player_id) && dragId !== m.player_id) moves.set(m.player_id, { x: m.x, y: m.y });
     payload = p; setStatus('');
@@ -284,20 +272,16 @@ async function evaluate() {
 async function loadShot(id) {
   const mine = ++seq;
   try {
-    const p = await request('/api/shot/' + encodeURIComponent(id));
+    const p = await api('/api/shot/' + encodeURIComponent(id));
     if (mine !== seq) return null;
     if (payload === null || !nodes.size) buildPlayers(p);
     payload = p; setStatus('');
     render();
     return null;
   } catch (e) {
-    if (mine === seq) { loadError = e.message; setStatus('Could not load shot: ' + e.message); }
+    if (mine === seq) setStatus('Could not load shot: ' + e.message);
     return e.message;
   }
-}
-function selectShot(id) {
-  shotId = id; moves.clear(); dragId = null; clearTimeout(timer); payload = null;
-  return loadShot(id);
 }
 function reset() { moves.clear(); clearTimeout(timer); if (shotId) loadShot(shotId); }
 function undo() {
@@ -338,18 +322,15 @@ function fillShots(game, pick) {
   if (pick) sel.value = pick;
 }
 export { setStatus };
-export function getShots() { return shots; }
 export function getState() { return { shotId: shotId, payload: payload, moves: moves, shots: shots, view: view }; }
 // Show a shot in the board; resolves to null, or to the error message when it cannot be loaded.
 export async function showShot(id) {
   await ready;
   const row = shots.find((x) => x.shot_id === id);
   if (row) { $('gameSel').value = String(row.game_id); fillShots(row.game_id, id); }
-  if (id === shotId && payload && moves.size === 0) return null;
+  if (id === shotId && payload) { setStatus(''); return null; }   // same shot: keep the user's moves
   shotId = id; moves.clear(); dragId = null; clearTimeout(timer); payload = null;
-  loadError = null;
-  const err = await loadShot(id);
-  return err || loadError;
+  return loadShot(id);
 }
 export function mountBoard(host, opts) {
   onPayload = (opts && opts.onPayload) || onPayload;
@@ -361,8 +342,8 @@ export function mountBoard(host, opts) {
 }
 async function start() {
   try {
-    court = await request('/api/court');
-    shots = await request('/api/shots');
+    court = await api('/api/court');
+    shots = await api('/api/shots');
   } catch (e) { setStatus('Could not load court or shots: ' + e.message); return; }
   initSvg();
   try { view = localStorage.getItem('ventaja.board.view') === '2D' ? '2D' : '2.5D'; } catch (e) { view = '2.5D'; }
