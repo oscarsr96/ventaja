@@ -98,7 +98,7 @@ One local page opens on the Shot view: the whiteboard beside the advantage curve
 
 ![Whiteboard with the shooter dragged into the restricted area](docs/figures/board-shot-114243-3-108.jpg)
 
-*Louis Olinde dragged into the restricted area: the decision cost falls from 1.53 to 0.72.*
+*Louis Olinde dragged into the restricted area: the decision cost falls from 1.53 to 0.70.*
 
 ## Ask the court
 
