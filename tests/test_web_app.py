@@ -378,3 +378,9 @@ def test_cli_app_and_board_alias() -> None:
     out = CliRunner().invoke(cli_app, ["board", "--help"]).stdout
     assert "ventaja app" in out
     assert "app" in CliRunner().invoke(cli_app, ["app", "--help"]).stdout
+
+
+def test_curve_rows_are_sorted_and_cover_release(pkg_client: TestClient) -> None:
+    c = pkg_client.get("/api/curve/shot-191313-1-31").json()
+    ts = [r["t"] for r in c["rows"]]
+    assert ts == sorted(ts) and ts[-1] >= -0.3 and c["decision_t"] >= ts[0]

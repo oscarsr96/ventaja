@@ -1,6 +1,7 @@
 // The Shot view: header, headline, options table, clip, featured list and the other shots of the game.
 import { mountBoard, showShot, getState, setStatus, jersey, viridis, hasJersey, f, h } from '/static/board.js';
 import { api, navigate, fmt } from '/static/app.js';
+import { showCurve } from '/static/curve.js';
 
 const $ = (id) => document.getElementById(id);
 const FEATURED_LABELS = { worst: 'Worst decisions', best: 'Best reads', late: 'Lost moments' };
@@ -94,6 +95,7 @@ function onPayload(p, optBy) {
   if (link) link.setAttribute('href', '#shot=' + encodeURIComponent(p.shot_id));   // Shot tab keeps the current shot
   renderHeader(p); renderHeadline(p); renderTable(p, optBy);
   renderClip(p); renderOthers(p);
+  showCurve($('curve'), p.shot_id);   // no-op unless the shot changed
   const sel = $('featuredSel'); if (sel) sel.value = [...sel.options].some((o) => o.value === p.shot_id) ? p.shot_id : '';
 }
 
