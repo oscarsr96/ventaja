@@ -473,8 +473,6 @@ class AskService:
         periods: dict[int, dict[str, int | None]] = {}
         out: list[ShotSummary] = []
         for r in shots.head(limit).iter_rows(named=True):
-            if r["game_id"] not in periods:
-                periods[r["game_id"]] = self._periods(r["game_id"])
             out.append(self._shot_summary(r, periods))
         return ShotList(total=shots.height, shots=out)
 
@@ -509,9 +507,9 @@ class AskService:
             raise ValueError(f"n must be at least 1; got {n}")
         tables = rank_tables(self.decisions, self.summaries, None, None, n=n)
         worst, best, late, low = tables
-        summaries = self.summaries.select(
-            "shot_id", "verdict", "headline_en", "window_handler_id"
-        ).unique(subset="shot_id", keep="first")
+        summaries = self.summaries.select("shot_id", "verdict", "headline_en").unique(
+            subset="shot_id", keep="first"
+        )
         rows = {
             r["shot_id"]: r
             for r in self.decisions.join(summaries, on="shot_id", how="left").iter_rows(named=True)

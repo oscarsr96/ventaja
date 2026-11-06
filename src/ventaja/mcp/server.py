@@ -239,7 +239,10 @@ def _run(service: AskService, name: str, arguments: Mapping[str, Any]) -> Any:
 
 
 def tool_schemas(server: MCPServer) -> list[dict[str, Any]]:
-    """Name, description and input schema of each tool, in ``TOOL_NAMES`` order."""
+    """Name, description and input schema of each tool, in ``TOOL_NAMES`` order.
+
+    Call from synchronous code only (uses asyncio.run).
+    """
     tools = {t.name: t for t in asyncio.run(server.list_tools())}
     return [
         {

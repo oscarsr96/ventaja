@@ -5,7 +5,7 @@ import { showCurve } from '/static/curve.js';
 
 const $ = (id) => document.getElementById(id);
 const FEATURED_LABELS = { worst: 'Worst decisions', best: 'Best reads', late: 'Lost moments' };
-let featured = null, reel = null, current = null, token = 0;
+let featured = null, reel = null, current = null, token = 0, boardReady = null;
 
 function field(label, valueNode) {
   const d = h('div'); d.appendChild(h('span', label, 'k')); valueNode.classList.add('v'); d.appendChild(valueNode); return d;
@@ -106,7 +106,7 @@ export function mount(section) {
     '<div class="card" id="clip"></div>' +
     '<div class="card"><label class="k" for="featuredSel">Featured</label><select id="featuredSel"></select>' +
     '<h1 id="othersTitle">Other shots in this game</h1><ul id="others"></ul></div></div></div>';
-  mountBoard($('boardHost'), { onPayload: onPayload, onSelect: (shot) => navigate({ shot: shot }) });
+  boardReady = mountBoard($('boardHost'), { onPayload: onPayload, onSelect: (shot) => navigate({ shot: shot }) });
   $('featuredSel').addEventListener('change', (ev) => { if (ev.target.value) navigate({ shot: ev.target.value }); });
   const loading = Promise.all([
     api('/api/featured').then((x) => { featured = x; renderFeatured(); }),
@@ -118,12 +118,16 @@ export function mount(section) {
 export async function update(state) {
   const mine = ++token;
   await mount.loading;
+  try { await boardReady; } catch (e) { /* the board reports its own load error */ }
   if (mine !== token) return;
-  const id = state.shot || (featured && featured.default_shot);
+  const shots = getState().shots || [], dflt = featured && featured.default_shot;
+  // a --game filter can leave the default shot outside the board's list: open its costliest shot instead
+  const fallbackId = shots.length && !shots.some((x) => x.shot_id === dflt) ? shots[0].shot_id : dflt;
+  const id = state.shot || fallbackId;
   if (!id) { setStatus('No valued shots to show.', true); return; }
   const err = await showShot(id);
   if (mine !== token || !err) return;
-  const fallback = featured && featured.default_shot;
+  const fallback = fallbackId;
   setStatus('Shot ' + id + ' is not available: ' + err);
   if (fallback && fallback !== id) {
     await showShot(fallback);

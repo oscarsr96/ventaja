@@ -72,7 +72,6 @@ function adrCard() {
 
 export function mount(section) {
   section.textContent = '';
-  section.style.cssText = 'display:flex;flex-direction:column;gap:10px';
   const d = card('What ventaja is');
   DESCRIPTION.forEach((t) => d.appendChild(h('p', t)));
   section.appendChild(d);

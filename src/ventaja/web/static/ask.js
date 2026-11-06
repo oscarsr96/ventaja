@@ -2,7 +2,7 @@
 import { api } from '/static/app.js';
 
 const REPO_PLACEHOLDER = '/path/to/ventaja';
-let root = null;
+let root = null, holderBox = null, pending = '';
 
 function h(tag, text, cls) {
   const e = document.createElement(tag);
@@ -75,11 +75,12 @@ function control(name, raw, required) {
   row.appendChild(lab); row.appendChild(el);
   const desc = [p.description, ...hint].filter(Boolean).join(' · ');
   if (desc) row.appendChild(h('div', desc, 'hint'));
-  return { row, read };
+  const readReq = () => { const v = read(); if (required && v === undefined) throw new Error(name + ' is required'); return v; };
+  return { row, read: readReq };
 }
 
 function toolCard(tool) {
-  const c = card(tool.name);
+  const c = card(tool.name); c.dataset.tool = tool.name;
   c.appendChild(h('p', tool.description || '', 'hint'));
   const props = (tool.input_schema && tool.input_schema.properties) || {};
   const req = new Set((tool.input_schema && tool.input_schema.required) || []);
@@ -145,13 +146,19 @@ function glossaryCard() {
 
 export function mount(section) {
   root = section; section.textContent = '';
-  section.style.cssText = 'display:flex;flex-direction:column;gap:10px';
   section.appendChild(connectCard());
   section.appendChild(glossaryCard());
   const holder = h('div'); holder.style.cssText = 'display:flex;flex-direction:column;gap:10px';
-  section.appendChild(holder);
-  api('/api/ask/schema').then((tools) => { tools.forEach((t) => holder.appendChild(toolCard(t))); })
+  section.appendChild(holder); holderBox = holder;
+  api('/api/ask/schema').then((tools) => { tools.forEach((t) => holder.appendChild(toolCard(t))); focusTool(pending); })
     .catch((e) => { holder.appendChild(h('p', 'Could not load the tool schema: ' + e.message, 'bad')); });
 }
 
-export function update(state) {}
+// #ask=<tool>: scroll to that tool's card (once the schema has built the cards).
+function focusTool(name) {
+  if (!name || !holderBox) return;
+  const c = [...holderBox.children].find((x) => x.dataset && x.dataset.tool === name);
+  if (c) c.scrollIntoView({ block: 'start' });
+}
+
+export function update(state) { pending = state.ask || ''; focusTool(pending); }

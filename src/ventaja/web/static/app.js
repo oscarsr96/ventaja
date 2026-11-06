@@ -1,6 +1,7 @@
 // Shell: hash router, API helper and number formatting shared by every view.
 const VIEWS = ['shot', 'players', 'games', 'ask', 'about'];
 const KEYS = { shot: 'shot', ask: 'ask' };            // views whose hash value is the view's own argument
+const LEAD_VIEW = { player: 'players', game: 'games' };   // leading key -> its view
 const modules = {}, sections = {};
 let state = { view: 'shot', shot: '', player: '', game: '', ask: '' };
 
@@ -30,6 +31,7 @@ function parseHash(hash) {
     let k, v;
     try { [k, v = ''] = part.split('=').map(decodeURIComponent); } catch (e) { return; }   // malformed %-escape: ignore the part
     if (i === 0 && VIEWS.includes(k)) { next.view = k; if (KEYS[k]) next[k] = v; }
+    else if (i === 0 && LEAD_VIEW[k]) { next.view = LEAD_VIEW[k]; next[k] = v; }   // #player=ID, #game=ID
     else if (Object.hasOwn(next, k) && k !== 'view') next[k] = v;
   });
   return next;

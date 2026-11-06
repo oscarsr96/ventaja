@@ -11,6 +11,8 @@ from fastapi import Body, FastAPI, HTTPException, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import HTMLResponse, JSONResponse, PlainTextResponse
 from fastapi.staticfiles import StaticFiles
+from starlette.responses import Response
+from starlette.types import Scope
 from pydantic import BaseModel, ConfigDict, Field, FiniteFloat, ValidationError
 
 from ventaja import __version__
@@ -42,6 +44,15 @@ _SUMMARY_KEYS = (
     "window_peak_value",
 )
 _NO_FRAMES = "no decision frames found; run `ventaja frames build --all` first"
+
+
+class _NoCacheStatic(StaticFiles):
+    """Static files that browsers must revalidate (ETag) on every load: no stale ES modules."""
+
+    def file_response(self, *args: Any, **kwargs: Any) -> Response:
+        response = super().file_response(*args, **kwargs)
+        response.headers["Cache-Control"] = "no-cache"
+        return response
 
 
 class Move(BaseModel):
@@ -79,7 +90,7 @@ def create_app(
 ) -> FastAPI:
     """Build the service and the board eagerly and the app around them.
 
-    ``games`` restricts the shot list. Missing artifacts raise a ``VentajaError``.
+    ``games`` restricts the board's shot list, default shot and Games view. Missing artifacts raise a ``VentajaError``.
     """
     if not frame_files(settings):
         raise VentajaError(_NO_FRAMES)
@@ -99,10 +110,14 @@ def create_app(
         detail = [{k: v for k, v in e.items() if k in ("type", "loc", "msg")} for e in exc.errors()]
         return JSONResponse(status_code=422, content={"detail": detail})
 
-    app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
+    app.mount("/static", _NoCacheStatic(directory=STATIC_DIR), name="static")
     reel_root = REPO_ROOT / "docs" / "reel"
     if reel_root.is_dir():
         app.mount("/reel", StaticFiles(directory=reel_root), name="reel")
+
+    @app.get("/favicon.ico", include_in_schema=False)
+    def favicon() -> Response:
+        return Response(status_code=204)
 
     @app.get("/", response_class=HTMLResponse)
     def index() -> str:
@@ -136,20 +151,25 @@ def create_app(
         return PlainTextResponse(render_glossary(), media_type="text/markdown")
 
     @app.post("/api/ask/{tool}", response_model=None)
-    def ask(tool: str, body: Annotated[dict[str, Any] | None, Body()] = None) -> Any:
+    def ask(tool: str, body: Annotated[Any, Body()] = None) -> Any:
         if tool not in TOOL_NAMES:
             return _error(404, f"unknown tool {tool!r}; tools: {', '.join(TOOL_NAMES)}")
+        if body is not None and not isinstance(body, dict):
+            return _error(400, "arguments must be a JSON object")
         try:
             result = call_tool(service, tool, body or {})
         except DataNotFoundError as exc:
             return _error(404, str(exc))
-        except (VentajaError, ValueError, ValidationError) as exc:
+        except ValidationError as exc:
+            detail = "; ".join(f"{'.'.join(map(str, e['loc']))}: {e['msg']}" for e in exc.errors())
+            return _error(400, detail)
+        except (VentajaError, ValueError) as exc:
             return _error(400, str(exc))
         return [r.model_dump() for r in result] if isinstance(result, list) else result.model_dump()
 
     @app.get("/api/curve/{shot_id}", response_model=None)
     def curve(shot_id: str) -> Any:
-        rows = _curve_rows(service, settings, shot_id)
+        rows = _curve_rows(settings, shot_id)
         if rows is None or rows.is_empty():
             return _error(404, f"no advantage curve for {shot_id!r}")
         return _curve_payload(service, shot_id, rows)
@@ -175,6 +195,7 @@ def create_app(
             "players": carded.height,
             "model_trained_at": first.get("model_trained_at"),
             "built_at": first.get("built_at"),
+            "games_filter": None if allowed is None else sorted(allowed),
         }
 
     @app.get("/docs/decisions/{name}", response_model=None)
@@ -196,7 +217,7 @@ def _clean(value: Any) -> Any:
     return None if isinstance(value, float) and math.isnan(value) else value
 
 
-def _curve_rows(service: AskService, settings: Settings, shot_id: str) -> pl.DataFrame | None:
+def _curve_rows(settings: Settings, shot_id: str) -> pl.DataFrame | None:
     match = _SHOT_GAME.match(shot_id)
     if match is None:
         return None

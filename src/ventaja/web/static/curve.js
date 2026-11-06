@@ -49,9 +49,11 @@ function draw(c) {
     const ln = el('line', { x1: x, y1: T, x2: x, y2: H - B, stroke: '#c62828', 'stroke-width': 1.2 });
     if (dash) ln.setAttribute('stroke-dasharray', dash);
     svg.appendChild(ln);
-    // both labels end just left of their line; decision sits one row lower so the words never touch
+    // labels end just left of their line, or start right of it when that would run into the y-axis gutter;
+    // decision sits one row lower than release so the words never touch in either anchoring
     const row = label === 'release' ? T - 5 : T + 8;
-    svg.appendChild(el('text', { x: x - 3, y: row, 'text-anchor': 'end', 'font-size': 10, fill: '#c62828' }, label));
+    const near = x - L < 50;
+    svg.appendChild(el('text', { x: near ? x + 3 : x - 3, y: row, 'text-anchor': near ? 'start' : 'end', 'font-size': 10, fill: '#c62828' }, label));
   }
   svg.appendChild(el('path', { d: path(rows, 'handler_shot_value', sx, sy), fill: 'none', stroke: SHOOTER, 'stroke-width': 2 }));
   svg.appendChild(el('path', { d: path(rows, 'best_pass_value', sx, sy), fill: 'none', stroke: PASS, 'stroke-width': 2 }));

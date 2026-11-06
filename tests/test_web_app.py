@@ -216,6 +216,7 @@ def test_static_files_are_wired_and_small(client: TestClient) -> None:
             "text/javascript" if name.endswith(".js") else "text/css"
         )
         assert len(r.text.splitlines()) <= 600, name
+        assert r.headers["cache-control"] == "no-cache", name
     for view in ("shot", "players", "games", "ask", "about"):
         assert f'data-view="{view}"' in html
 
@@ -367,6 +368,8 @@ def test_featured_and_about(pkg_client: TestClient) -> None:
         ("0009-pizarra.md", 200),
         ("0099-nope.md", 404),
         ("../README.md", 404),
+        ("README.md", 404),
+        ("0009-Pizarra.md", 404),
         ("0009-pizarra.txt", 404),
     ],
 )
@@ -384,3 +387,19 @@ def test_curve_rows_are_sorted_and_cover_release(pkg_client: TestClient) -> None
     c = pkg_client.get("/api/curve/shot-191313-1-31").json()
     ts = [r["t"] for r in c["rows"]]
     assert ts == sorted(ts) and ts[-1] >= -0.3 and c["decision_t"] >= ts[0]
+
+
+def test_games_filter_consistency(clean_settings: Settings) -> None:
+    c = TestClient(create_app(clean_settings, games=[114243]))
+    assert c.get("/api/about").json()["games_filter"] == [114243]
+    rows = c.get("/api/shots").json()
+    assert rows and {r["game_id"] for r in rows} == {114243}
+    assert TestClient(create_app(clean_settings)).get("/api/about").json()["games_filter"] is None
+
+
+def test_favicon_and_ask_body_errors(pkg_client: TestClient) -> None:
+    assert pkg_client.get("/favicon.ico").status_code == 204
+    r = pkg_client.post("/api/ask/rank_players", json=[1])
+    assert r.status_code == 400 and r.json() == {"error": "arguments must be a JSON object"}
+    r = pkg_client.post("/api/ask/rank_players", json={"limit": "x"})
+    assert r.status_code == 400 and "http" not in r.json()["error"]

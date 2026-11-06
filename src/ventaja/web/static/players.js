@@ -128,7 +128,6 @@ export function mount(section) {
   root = section; section.textContent = '';
   msg = h('p', '', 'bad');
   rankBox = h('div'); profBox = h('div'); profBox.style.display = 'flex'; profBox.style.flexDirection = 'column'; profBox.style.gap = '10px';
-  root.style.display = 'flex'; root.style.flexDirection = 'column'; root.style.gap = '10px';
   teamsLoaded = api('/api/ask/list_games', { method: 'POST', body: {} }).then((gs) => {
     const names = new Set();
     gs.forEach((g) => { if (g.home.name) names.add(g.home.name); if (g.away.name) names.add(g.away.name); });

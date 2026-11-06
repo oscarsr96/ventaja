@@ -55,10 +55,11 @@ async function renderShots(gameId, mine) {
 
 export function mount(section) {
   section.textContent = '';
-  section.style.cssText = 'display:flex;flex-direction:column;gap:10px';
   gamesBox = h('div'); shotsBox = h('div');
   section.appendChild(gamesBox); section.appendChild(shotsBox);
-  loading = api('/api/ask/list_games', { method: 'POST', body: {} }).then((g) => { games = g; })
+  // the app's --game filter (null = all games) hides the games the board does not serve
+  loading = Promise.all([api('/api/ask/list_games', { method: 'POST', body: {} }), api('/api/about')])
+    .then(([g, a]) => { games = a.games_filter ? g.filter((x) => a.games_filter.includes(x.game_id)) : g; })
     .catch((e) => { gamesBox.appendChild(h('p', 'Could not load games: ' + e.message, 'bad')); });
 }
 
