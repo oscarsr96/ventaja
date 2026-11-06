@@ -52,6 +52,15 @@ jobs:
       - run: |
           VENTAJA_BUILD_DIR=/tmp/empty-build uv run ventaja mcp call explain_shot '{"shot_id": "shot-114243-1-0"}'
       - run: VENTAJA_BUILD_DIR=/tmp/empty-build uv run ventaja mcp tools
+      # Unified app from a clean clone: packaged artifacts only, no build.
+      - run: |
+          VENTAJA_BUILD_DIR=/tmp/empty-build uv run ventaja app --no-open --port 8765 &
+          for i in $(seq 1 60); do curl -sf http://127.0.0.1:8765/api/court >/dev/null && break; sleep 1; done
+          curl -sf http://127.0.0.1:8765/ >/dev/null
+          curl -sf http://127.0.0.1:8765/api/featured | grep -q default_shot
+          curl -sf http://127.0.0.1:8765/api/ask/schema | grep -q what_if
+          curl -sf http://127.0.0.1:8765/api/curve/shot-191313-1-31 | grep -q decision_t
+          kill %1
 
   pipeline-all:
     if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'

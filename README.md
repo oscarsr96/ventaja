@@ -88,17 +88,17 @@ Cards cover 10 games: 190 players have one from a single valued shot (median 6 s
 
 `artifacts/players.parquet` and `teams.parquet` ship in the repo; `uv run ventaja player build --out artifacts` regenerates them.
 
-## Whiteboard
+## App
 
 ```bash
-uv run ventaja board
+uv run ventaja app
 ```
 
-Drag any of the ten players on the decision frame of a shot (2.5D view by default, 2D toggle) and the values recompute at once; a moved shooter is valued from the new position. It runs from packaged artifacts, with no tracking download. Method and limits: [ADR-0009](docs/decisions/0009-pizarra.md).
+One local page opens on the Shot view: the whiteboard beside the advantage curve of the same possession, for the worst valued decision by the reel's rule. Drag any of the ten players on the decision frame (2.5D view by default, 2D toggle) and the values recompute at once; the curve values the real possession, so it does not move. Then Players, Games, Ask (the MCP tools as forms) and About. It runs from packaged artifacts, with no tracking download; `ventaja board` is an alias. Method and limits: [ADR-0009](docs/decisions/0009-pizarra.md) (whiteboard), [ADR-0011](docs/decisions/0011-app-unificada.md) (app).
 
 ![Whiteboard with the shooter dragged into the restricted area](docs/figures/board-shot-114243-3-108.jpg)
 
-*Louis Olinde dragged into the restricted area: the decision cost falls from 1.53 to 0.74.*
+*Louis Olinde dragged into the restricted area: the decision cost falls from 1.53 to 0.70.*
 
 ## Ask the court
 

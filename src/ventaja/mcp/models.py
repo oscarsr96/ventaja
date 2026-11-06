@@ -10,6 +10,8 @@ __all__ = [
     "BestAlternative",
     "ClockBand",
     "CurveSummaryOut",
+    "Featured",
+    "FeaturedShot",
     "GameInfo",
     "GameSide",
     "Metrics",
@@ -260,3 +262,21 @@ class WhatIf(_Frozen):
     delta_cost: float
     moves: list[AppliedMove]
     players: list[PlacedPlayer]
+
+
+class FeaturedShot(_Frozen):
+    """One shot of a featured list: its rank, the ranking metric and the shot itself."""
+
+    rank: int
+    metric: float
+    shot: ShotSummary
+
+
+class Featured(_Frozen):
+    """The shots worth opening first: costliest, best reads and costliest late holds."""
+
+    default_shot: str | None
+    worst: list[FeaturedShot]
+    best: list[FeaturedShot]
+    late: list[FeaturedShot]
+    low_confidence: int

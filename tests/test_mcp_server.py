@@ -20,6 +20,7 @@ from ventaja.mcp.server import (
     call_tool,
     create_server,
     render_glossary,
+    tool_schemas,
 )
 from ventaja.mcp.service import AskService
 from ventaja.value.params import MCP_MAX_LIMIT, PROFILE_MIN_SHOTS
@@ -148,3 +149,13 @@ def test_wrappers_and_dispatcher_share_one_signature(server: MCPServer) -> None:
             (p.name, p.default, p.annotation) for p in params
         ], name
         assert wrapper.return_annotation == dispatched.return_annotation, name
+
+
+def test_server_accepts_an_injected_service(tmp_path: Path) -> None:
+    settings = Settings(data_dir=tmp_path / "raw", build_dir=tmp_path / "build")
+    service = AskService(settings)
+    server = create_server(settings, service=service)
+    schemas = tool_schemas(server)
+    assert [s["name"] for s in schemas] == list(TOOL_NAMES)
+    assert all(s["description"] and s["input_schema"]["type"] == "object" for s in schemas)
+    assert schemas[1]["input_schema"]["properties"]["limit"]["maximum"] == MCP_MAX_LIMIT

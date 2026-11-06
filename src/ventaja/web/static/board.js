@@ -1,86 +1,7 @@
-<!doctype html>
-<html lang="en">
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>ventaja board</title>
-<style>
-  :root { --ink:#1b1f24; --muted:#5f6b76; --line:#d5dbe1; --bg:#f4f6f8; --card:#fff; --good:#1a8a3c; --bad:#c62828; --accent:#2457a6; }
-  * { box-sizing: border-box; }
-  body { margin:0; padding:12px; background:var(--bg); color:var(--ink);
-         font:14px/1.4 system-ui,-apple-system,"Segoe UI",Roboto,Helvetica,Arial,sans-serif; }
-  main { max-width:1000px; margin:0 auto; display:flex; flex-direction:column; gap:10px; }
-  .card { background:var(--card); border:1px solid var(--line); border-radius:8px; padding:10px 14px; }
-  h1 { margin:0 0 4px; font-size:13px; letter-spacing:.08em; text-transform:uppercase; color:var(--muted); }
-  #controls { display:flex; flex-wrap:wrap; gap:8px; align-items:center; }
-  select, button { font:inherit; padding:5px 9px; border:1px solid var(--line); border-radius:6px; background:#fff; color:var(--ink); }
-  select { max-width:100%; }
-  button { cursor:pointer; } button:hover { border-color:var(--accent); }
-  #shotSel { flex:1 1 320px; min-width:0; }
-  #layout { display:flex; flex-direction:column; gap:10px; }
-  #side { display:flex; flex-direction:column; gap:10px; min-width:0; }
-  @media (min-width:1100px) {
-    #layout { display:grid; grid-template-columns:minmax(0,1fr) minmax(560px,38%); align-items:start; }
-    main { max-width:1500px; }
-    #tableWrap { font-size:12px; padding:6px; } th, td { padding:3px 3px; }
-  }
-  #head { display:grid; grid-template-columns:repeat(auto-fit,minmax(190px,1fr)); gap:6px 14px; }
-  .k { color:var(--muted); font-size:12px; display:block; }
-  .v { font-size:15px; font-weight:600; }
-  .good { color:var(--good); } .bad { color:var(--bad); }
-  #moveNote { grid-column:1/-1; background:#fff4d6; border:1px solid #e8c55b; border-radius:6px; padding:4px 8px; font-weight:600; }
-  #headline { margin:0; font-size:15px; }
-  #courtWrap { padding:6px; }
-  #court { width:100%; aspect-ratio:74/42.5; max-height:calc(100vh - 190px); display:block; margin:0 auto; touch-action:none; user-select:none; }
-  .player { cursor:grab; } .player.drag { cursor:grabbing; }
-  .player text { pointer-events:none; text-anchor:middle; font-weight:700; }
-  .lbl { font-size:1.3px; font-weight:600; fill:#1b1f24; paint-order:stroke; stroke:#f2d9a8; stroke-width:.35px; }
-  .lbl5 { font-size:16px; font-weight:600; fill:#1b1f24; paint-order:stroke; stroke:#f2d9a8; stroke-width:5px; }
-  .fb { font-style:italic; opacity:.7; }
-  #legend { display:flex; align-items:center; gap:8px; font-size:12px; color:var(--muted); margin-top:4px; flex-wrap:wrap; }
-  #legend i { display:inline-block; width:140px; height:10px; border-radius:5px; border:1px solid var(--line); }
-  #status { min-height:1.4em; color:var(--bad); font-size:13px; }
-  #status.info { color:var(--muted); }
-  #tableWrap { overflow-x:auto; }
-  table { border-collapse:collapse; width:100%; font-variant-numeric:tabular-nums; white-space:nowrap; }
-  th, td { padding:3px 8px; text-align:right; border-bottom:1px solid var(--line); }
-  th { color:var(--muted); font-size:12px; font-weight:600; }
-  th.l, td.l { text-align:left; }
-  td.nm { width:100%; max-width:0; min-width:36px; overflow:hidden; text-overflow:ellipsis; }
-  tr.shooter td { font-weight:700; } tr.alt td { background:#eaf3ff; }
-  td.sw { padding:3px 4px; text-align:center; }
-  td.sw b { display:inline-block; width:22px; height:22px; line-height:22px; border-radius:50%; font-size:11px; }
-  .hint { color:var(--muted); font-size:12px; margin-top:4px; }
-</style>
-</head>
-<body>
-<main>
-  <div class="card">
-    <h1>ventaja board</h1>
-    <div id="controls">
-      <select id="gameSel" aria-label="Game"></select>
-      <select id="shotSel" aria-label="Shot"></select>
-      <select id="viewSel" aria-label="View"><option value="2.5D">2.5D</option><option value="2D">2D</option></select>
-      <button id="resetBtn" type="button">Reset</button>
-      <button id="undoBtn" type="button">Undo last</button>
-    </div>
-  </div>
-  <div id="layout">
-  <div class="card" id="courtWrap">
-    <svg id="court" xmlns="http://www.w3.org/2000/svg" viewBox="-49 -28.5 61 57" role="img" aria-label="Half court with the ten players"></svg>
-    <div id="legend"><span>adjusted value</span><i id="legendBar"></i><span id="legendTxt">0.6 &rarr; 1.5 (offense); defense grey; ball orange; thick black outline = shooter; dashed ring = moved; silhouette height is not real height</span></div>
-    <div class="hint">Drag any player; the five option values recompute as you move.</div>
-  </div>
-  <div id="side">
-    <div class="card" id="head"></div>
-    <p id="headline"></p>
-    <div id="status" class="info" role="status"></div>
-    <div class="card" id="tableWrap"><table id="optTable"></table></div>
-  </div>
-  </div>
-</main>
-<script>
-'use strict';
+// The whiteboard: SVG court, 2.5D projection, drag-to-move players, undo/reset.
+// Moved from the former single-page index.html; header, table and headline now live in shot.js.
+import { api } from '/static/app.js';
+
 const NS = 'http://www.w3.org/2000/svg';
 const R = 1.5;                       // player radius, feet
 const V_LO = 0.6, V_HI = 1.5;        // fixed colour scale, same as the GIFs
@@ -90,7 +11,10 @@ const K = 0.25, DEPTH = 0.55, U0 = 0, V0 = 0;   // 2.5D: oblique skew, depth com
 const VIEWS = { '2D': '-49 -28.5 61 57', '2.5D': '-30.15 -40.5 74 42.5' };
 
 const $ = (id) => document.getElementById(id);
-const svg = $('court');
+let svg = null;                      // set by mountBoard
+let onPayload = () => {};            // set by mountBoard
+let onSelect = () => {};             // user picked a shot in the board selects
+let ready = null;                    // resolves once court and shots are loaded
 let court = null;                    // /api/court payload
 let shots = [];                      // /api/shots rows
 let shotId = null;                   // selected shot
@@ -112,15 +36,15 @@ function el(tag, attrs, parent, text) {
   if (parent) parent.appendChild(e);
   return e;
 }
-function h(tag, text, cls) {
+export function h(tag, text, cls) {
   const e = document.createElement(tag);
   if (text !== undefined) e.textContent = text;
   if (cls) e.className = cls;
   return e;
 }
-const f = (v, d) => (v === null || v === undefined || Number.isNaN(v)) ? '-' : Number(v).toFixed(d);
+export const f = (v, d) => (v === null || v === undefined || Number.isNaN(v)) ? '-' : Number(v).toFixed(d);
 
-function viridis(value) {
+export function viridis(value) {
   const t = Math.min(1, Math.max(0, (value - V_LO) / (V_HI - V_LO)));
   const s = t * (STOPS.length - 1), i = Math.min(STOPS.length - 2, Math.floor(s)), u = s - i;
   const c = STOPS[i].map((a, k) => Math.round(a + (STOPS[i + 1][k] - a) * u));
@@ -132,17 +56,6 @@ function setStatus(msg, info) {
   const s = $('status');
   s.textContent = msg || '';
   s.className = info ? 'info' : '';
-}
-async function request(url, opts) { return parse(await fetch(url, opts)); }
-async function parse(resp) {
-  let body = null;
-  try { body = await resp.json(); } catch (e) { body = null; }
-  if (!resp.ok) {
-    let d = body && body.detail;
-    if (Array.isArray(d)) d = d.map((x) => (x.loc ? x.loc.join('.') + ': ' : '') + x.msg).join('; ');
-    throw new Error(d || ('HTTP ' + resp.status));
-  }
-  return body;
 }
 
 /* ---------- court (static lines, y flipped so +y is up) ---------- */
@@ -228,7 +141,7 @@ function buildPlayers(p) {
   ballEl = el('circle', { r: 0.8, fill: '#f08a24', stroke: '#7a3b00', 'stroke-width': 0.2, 'pointer-events': 'none' }, figures);
   setView(view);
 }
-function jersey(pl) { return pl.jersey !== null && pl.jersey !== undefined ? String(pl.jersey) : String(pl.player_id).slice(-2); }
+export function jersey(pl) { return pl.jersey !== null && pl.jersey !== undefined ? String(pl.jersey) : String(pl.player_id).slice(-2); }
 
 function place(id, x, y) {
   const n = nodes.get(id);
@@ -245,8 +158,7 @@ function currentPos(pl) {
 function render() {
   if (!payload) return;
   const optBy = drawBoard(payload);
-  renderHeader(payload);
-  renderTable(payload, optBy);
+  onPayload(payload, optBy);
 }
 function drawBoard(p) {
   const optBy = new Map(p.options.map((o) => [o.player_id, o]));
@@ -303,56 +215,7 @@ function drawBoard(p) {
   return optBy;
 }
 
-/* ---------- header and table ---------- */
-function field(label, valueNode) {
-  const d = h('div'); d.appendChild(h('span', label, 'k')); valueNode.classList.add('v'); d.appendChild(valueNode); return d;
-}
-function clock(p) { return p.shot_clock === null || p.shot_clock === undefined ? 'clock unknown' : f(p.shot_clock, 1) + ' s on shot clock'; }
-function hasJersey(pl) { return pl.jersey !== null && pl.jersey !== undefined; }
-function playerLabel(pl) { return (hasJersey(pl) ? '#' + jersey(pl) : '(id ..' + jersey(pl) + ')') + ' ' + (pl.name || '-'); }
-function renderHeader(p) {
-  const hd = $('head'); hd.textContent = '';
-  const sh = p.players.find((x) => x.player_id === p.shooter_id);
-  const row = shots.find((x) => x.shot_id === p.shot_id);
-  const team = (row && row.team) || (sh && sh.team_id !== null ? 'team ' + sh.team_id : '-');
-  hd.appendChild(field('Shooter', h('div', (sh ? playerLabel(sh) : String(p.shooter_id)) + ' · ' + team)));
-  hd.appendChild(field('Rule · period · clock', h('div', p.rule + ' · P' + p.period + ' · ' + clock(p))));
-  const alt = p.best_alt_value === null || p.best_alt_value === undefined;
-  hd.appendChild(field('Shot value → best alternative', h('div', f(p.shot_value, 3) + ' → ' + (alt ? 'no viable pass' : f(p.best_alt_value, 3)))));
-  const cost = h('div'); cost.appendChild(document.createTextNode(f(p.original_cost, 3) + ' → ' + f(p.cost, 3) + ' '));
-  const dc = Math.abs(p.delta_cost) < 5e-4 ? 0 : p.delta_cost;   // float noise is not a change
-  const dl = h('span', '(' + (dc > 0 ? '+' : '') + f(dc, 3) + ')', dc < 0 ? 'good' : dc > 0 ? 'bad' : '');
-  cost.appendChild(dl);
-  hd.appendChild(field('Cost: original → current (delta)', cost));
-  if (sh && (sh.moved || moves.has(p.shooter_id))) hd.appendChild(h('div', 'The shot is valued from the new position.', '')).id = 'moveNote';
-}
-function renderTable(p, optBy) {
-  const t = $('optTable'); t.textContent = '';
-  const heads = ['', 'no.', 'type', 'zone', 'P', 'val', 'viab', 'adj', 'alt', 'name'];
-  const tr = h('tr');
-  heads.forEach((x, i) => tr.appendChild(h('th', x, i === 0 || i === 2 || i === 3 || i >= 8 ? 'l' : '')));
-  t.appendChild(tr);
-  const byId = new Map(p.players.map((x) => [x.player_id, x]));
-  for (const o of p.options) {
-    const pl = byId.get(o.player_id) || {};
-    const mark = o.player_id === p.shooter_id ? '*' : (o.player_id === p.best_alt_player_id ? '>' : ' ');
-    const r = h('tr', undefined, mark === '*' ? 'shooter' : mark === '>' ? 'alt' : '');
-    const sw = h('td', undefined, 'sw'), b = h('b', jersey(pl)), v = viridis(o.adjusted_value);
-    b.style.background = v.css; b.classList.toggle('fb', !hasJersey(pl)); b.style.color = v.t > 0.6 ? '#111' : '#fff'; sw.appendChild(b);
-    const cells = [mark, null, o.option_type, o.zone, f(o.proba, 2), f(o.value, 3), f(o.viability, 2), f(o.adjusted_value, 3), o.alternative_type || '-', pl.name || '-'];
-    cells.forEach((c, i) => {
-      if (c === null) { r.appendChild(sw); return; }
-      const td = h('td', String(c), (i === 0 || i === 2 || i === 3 || i >= 8 ? 'l' : '') + (i === 9 ? ' nm' : ''));
-      if (i === 9) td.title = String(c);
-      r.appendChild(td);
-    });
-    t.appendChild(r);
-  }
-}
-function renderHeadline() {
-  const row = shots.find((x) => x.shot_id === shotId);
-  $('headline').textContent = row && row.headline_en ? row.headline_en : '';
-}
+export function hasJersey(pl) { return pl.jersey !== null && pl.jersey !== undefined; }
 
 /* ---------- drag, debounce, evaluate ---------- */
 function toFeet(ev) {
@@ -397,9 +260,7 @@ async function evaluate() {
   lastPost = Date.now();
   const body = { moves: Array.from(moves, ([player_id, q]) => ({ player_id: player_id, x: q.x, y: q.y })) };
   try {
-    const p = await request('/api/shot/' + encodeURIComponent(shotId) + '/evaluate', {
-      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
-    });
+    const p = await api('/api/shot/' + encodeURIComponent(shotId) + '/evaluate', { method: 'POST', body: body });
     if (mine !== seq) return;                  // a newer request is in flight
     for (const m of p.moves) if (moves.has(m.player_id) && dragId !== m.player_id) moves.set(m.player_id, { x: m.x, y: m.y });
     payload = p; setStatus('');
@@ -411,19 +272,16 @@ async function evaluate() {
 async function loadShot(id) {
   const mine = ++seq;
   try {
-    const p = await request('/api/shot/' + encodeURIComponent(id));
-    if (mine !== seq) return;
+    const p = await api('/api/shot/' + encodeURIComponent(id));
+    if (mine !== seq) return null;
     if (payload === null || !nodes.size) buildPlayers(p);
     payload = p; setStatus('');
     render();
+    return null;
   } catch (e) {
     if (mine === seq) setStatus('Could not load shot: ' + e.message);
+    return e.message;
   }
-}
-function selectShot(id) {
-  shotId = id; moves.clear(); dragId = null; clearTimeout(timer); payload = null;
-  renderHeadline();
-  return loadShot(id);
 }
 function reset() { moves.clear(); clearTimeout(timer); if (shotId) loadShot(shotId); }
 function undo() {
@@ -433,23 +291,59 @@ function undo() {
   evaluate();
 }
 
+
 /* ---------- selectors and start ---------- */
-function fillShots() {
-  const game = $('gameSel').value, sel = $('shotSel');
+const HOST = `
+  <div class="card">
+    <h1>ventaja board</h1>
+    <div id="controls">
+      <select id="gameSel" aria-label="Game"></select>
+      <select id="shotSel" aria-label="Shot"></select>
+      <select id="viewSel" aria-label="View"><option value="2.5D">2.5D</option><option value="2D">2D</option></select>
+      <button id="resetBtn" type="button">Reset</button>
+      <button id="undoBtn" type="button">Undo last</button>
+    </div>
+  </div>
+  <div class="card" id="courtWrap">
+    <svg id="court" xmlns="http://www.w3.org/2000/svg" viewBox="-49 -28.5 61 57" role="img" aria-label="Half court with the ten players"></svg>
+    <div id="legend"><span>adjusted value</span><i id="legendBar"></i><span id="legendTxt">0.6 &rarr; 1.5 (offense); defense grey; ball orange; thick black outline = shooter; dashed ring = moved; silhouette height is not real height</span></div>
+    <div class="hint">Drag any player; the five option values recompute as you move.</div>
+  </div>
+  <div id="status" class="info" role="status"></div>`;
+function fillShots(game, pick) {
+  const sel = $('shotSel');
   sel.textContent = '';
-  for (const s of shots.filter((x) => String(x.game_id) === game)) {
+  for (const s of shots.filter((x) => String(x.game_id) === String(game))) {
     const o = document.createElement('option');
     o.value = s.shot_id;
     o.textContent = s.shot_id + ' · ' + (s.shooter || s.shooter_id) + ' · ' + (s.team || '-') + ' · cost ' + f(s.cost, 2);
     sel.appendChild(o);
   }
-  if (sel.value) return selectShot(sel.value);
-  return Promise.resolve();
+  if (pick) sel.value = pick;
+}
+export { setStatus };
+export function getState() { return { shotId: shotId, payload: payload, moves: moves, shots: shots, view: view }; }
+// Show a shot in the board; resolves to null, or to the error message when it cannot be loaded.
+export async function showShot(id) {
+  await ready;
+  const row = shots.find((x) => x.shot_id === id);
+  if (row) { $('gameSel').value = String(row.game_id); fillShots(row.game_id, id); }
+  if (id === shotId && payload) { setStatus(''); return null; }   // same shot: keep the user's moves
+  shotId = id; moves.clear(); dragId = null; clearTimeout(timer); payload = null;
+  return loadShot(id);
+}
+export function mountBoard(host, opts) {
+  onPayload = (opts && opts.onPayload) || onPayload;
+  onSelect = (opts && opts.onSelect) || onSelect;
+  host.innerHTML = HOST;
+  svg = $('court');
+  ready = start();
+  return ready;
 }
 async function start() {
   try {
-    court = await request('/api/court');
-    shots = await parse(await fetch('/api/shots'));
+    court = await api('/api/court');
+    shots = await api('/api/shots');
   } catch (e) { setStatus('Could not load court or shots: ' + e.message); return; }
   initSvg();
   try { view = localStorage.getItem('ventaja.board.view') === '2D' ? '2D' : '2.5D'; } catch (e) { view = '2.5D'; }
@@ -457,8 +351,8 @@ async function start() {
   if (!shots.length) { setStatus('No valued shots to show.', true); return; }
   const games = Array.from(new Set(shots.map((s) => s.game_id)));
   for (const g of games) { const o = document.createElement('option'); o.value = String(g); o.textContent = 'game ' + g; $('gameSel').appendChild(o); }
-  $('gameSel').addEventListener('change', fillShots);
-  $('shotSel').addEventListener('change', (ev) => selectShot(ev.target.value));
+  $('gameSel').addEventListener('change', () => { fillShots($('gameSel').value); if ($('shotSel').value) onSelect($('shotSel').value); });
+  $('shotSel').addEventListener('change', (ev) => onSelect(ev.target.value));
   $('viewSel').addEventListener('change', (ev) => {
     setView(ev.target.value);
     try { localStorage.setItem('ventaja.board.view', view); } catch (e) { /* storage may be blocked */ }
@@ -466,9 +360,4 @@ async function start() {
   });
   $('resetBtn').addEventListener('click', reset);
   $('undoBtn').addEventListener('click', undo);
-  await fillShots();
 }
-start();
-</script>
-</body>
-</html>
