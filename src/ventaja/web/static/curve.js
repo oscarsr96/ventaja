@@ -49,9 +49,9 @@ function draw(c) {
     const ln = el('line', { x1: x, y1: T, x2: x, y2: H - B, stroke: '#c62828', 'stroke-width': 1.2 });
     if (dash) ln.setAttribute('stroke-dasharray', dash);
     svg.appendChild(ln);
-    // decision sits left of its line, release right of its line (anchored inside the plot), so they never overlap
-    const right = label === 'release';
-    svg.appendChild(el('text', { x: right ? Math.min(x + 3, W - R) : x - 3, y: T - 5, 'text-anchor': right ? 'start' : 'end', 'font-size': 10, fill: '#c62828' }, label));
+    // both labels end just left of their line; decision sits one row lower so the words never touch
+    const row = label === 'release' ? T - 5 : T + 8;
+    svg.appendChild(el('text', { x: x - 3, y: row, 'text-anchor': 'end', 'font-size': 10, fill: '#c62828' }, label));
   }
   svg.appendChild(el('path', { d: path(rows, 'handler_shot_value', sx, sy), fill: 'none', stroke: SHOOTER, 'stroke-width': 2 }));
   svg.appendChild(el('path', { d: path(rows, 'best_pass_value', sx, sy), fill: 'none', stroke: PASS, 'stroke-width': 2 }));
