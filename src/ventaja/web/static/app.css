@@ -54,3 +54,7 @@
   td.sw { padding:3px 4px; text-align:center; }
   td.sw b { display:inline-block; width:22px; height:22px; line-height:22px; border-radius:50%; font-size:11px; }
   .hint { color:var(--muted); font-size:12px; margin-top:4px; }
+  .playbar { display:flex; flex-wrap:wrap; gap:8px; align-items:center; }
+  .playbar input[type=range] { flex:1 1 200px; min-width:0; }
+  .playbar .k { display:inline; font-variant-numeric:tabular-nums; }
+  .playbar button:disabled { opacity:.5; cursor:default; }

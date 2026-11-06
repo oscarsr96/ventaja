@@ -27,6 +27,7 @@ let seq = 0;                         // request sequence counter; only the newes
 let timer = null;                    // debounce timer
 const nodes = new Map();             // player_id -> {g, circle, num, lbl}
 let arrow = null, ballEl = null, ground = null, figures = null, shadows = null, bcLbl = null;
+let playback = false;                // true while a recorded frame is on the board: dragging is off
 let view = '2.5D';                   // '2.5D' | '2D', remembered in localStorage
 
 function el(tag, attrs, parent, text) {
@@ -215,6 +216,28 @@ function drawBoard(p) {
   return optBy;
 }
 
+// Show one recorded frame {t, players: [[id, x, y]], ball: [x, y, z] | null}; null restores the decision position.
+export function showFrame(frame) {
+  if (!frame) {
+    playback = false;
+    if (payload && nodes.size) drawBoard(payload);
+    if (ballEl) ballEl.setAttribute('r', 0.8);
+    return;
+  }
+  if (!nodes.size) return;
+  playback = true;
+  for (const [id, x, y] of frame.players || []) place(id, x, y);
+  for (const n of nodes.values()) n.ring.setAttribute('display', 'none');
+  arrow.setAttribute('visibility', 'hidden');
+  if (frame.ball) {
+    const [x, y, z] = frame.ball, u = view === '2D' ? [x, -y] : project(x, y);
+    ballEl.setAttribute('cx', u[0]); ballEl.setAttribute('cy', u[1]);
+    ballEl.setAttribute('r', 0.8 + 0.25 * Math.max(0, z - 3));
+  }
+  figures.appendChild(ballEl);
+}
+export function isPlayback() { return playback; }
+
 export function hasJersey(pl) { return pl.jersey !== null && pl.jersey !== undefined; }
 
 /* ---------- drag, debounce, evaluate ---------- */
@@ -228,7 +251,7 @@ function clampToCourt(q) {   // the server clamps too: a backcourt player snaps 
   return { x: Math.min(0, Math.max(-hl, q.x)), y: Math.min(hw, Math.max(-hw, q.y)) };
 }
 function startDrag(ev, id, g) {
-  if (!payload) return;
+  if (!payload || playback) return;
   ev.preventDefault();
   const pl = payload.players.find((x) => x.player_id === id), at = moves.get(id) || pl, m = toFeet(ev);
   grab = { dx: at.x - m.x, dy: at.y - m.y };   // keep the point of the circle that was grabbed

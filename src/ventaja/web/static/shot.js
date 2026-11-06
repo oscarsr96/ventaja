@@ -2,10 +2,11 @@
 import { mountBoard, showShot, getState, setStatus, jersey, viridis, hasJersey, f, h } from '/static/board.js';
 import { api, navigate, fmt } from '/static/app.js';
 import { showCurve } from '/static/curve.js';
+import { mountPlay, loadPlay, stop } from '/static/play.js';
 
 const $ = (id) => document.getElementById(id);
 const FEATURED_LABELS = { worst: 'Worst decisions', best: 'Best reads', late: 'Lost moments' };
-let featured = null, reel = null, current = null, token = 0, boardReady = null;
+let featured = null, reel = null, current = null, token = 0, boardReady = null, playShot = null;
 
 function field(label, valueNode) {
   const d = h('div'); d.appendChild(h('span', label, 'k')); valueNode.classList.add('v'); d.appendChild(valueNode); return d;
@@ -96,6 +97,7 @@ function onPayload(p, optBy) {
   renderHeader(p); renderHeadline(p); renderTable(p, optBy);
   renderClip(p); renderOthers(p);
   showCurve($('curve'), p.shot_id);   // no-op unless the shot changed
+  if (p.shot_id !== playShot) { playShot = p.shot_id; stop(); loadPlay(p.shot_id); }   // moves keep the same play
   const sel = $('featuredSel'); if (sel) sel.value = [...sel.options].some((o) => o.value === p.shot_id) ? p.shot_id : '';
 }
 
@@ -107,6 +109,8 @@ export function mount(section) {
     '<div class="card"><label class="k" for="featuredSel">Featured</label><select id="featuredSel"></select>' +
     '<h1 id="othersTitle">Other shots in this game</h1><ul id="others"></ul></div></div></div>';
   boardReady = mountBoard($('boardHost'), { onPayload: onPayload, onSelect: (shot) => navigate({ shot: shot }) });
+  const bar = document.createElement('div'); bar.id = 'playBar';
+  $('boardHost').appendChild(bar); mountPlay(bar);
   $('featuredSel').addEventListener('change', (ev) => { if (ev.target.value) navigate({ shot: ev.target.value }); });
   const loading = Promise.all([
     api('/api/featured').then((x) => { featured = x; renderFeatured(); }),
@@ -117,6 +121,7 @@ export function mount(section) {
 
 export async function update(state) {
   const mine = ++token;
+  if (state.view !== 'shot') { stop(); return; }
   await mount.loading;
   try { await boardReady; } catch (e) { /* the board reports its own load error */ }
   if (mine !== token) return;

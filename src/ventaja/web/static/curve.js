@@ -5,6 +5,7 @@ const NS = 'http://www.w3.org/2000/svg';
 const W = 640, H = 240, L = 40, R = 12, T = 18, B = 28;
 const SHOOTER = '#2457a6', PASS = '#1b1f24';
 let drawn = null, token = 0;
+let plot = null;   // {svg, sx, y1, y2} of the last draw, for the playback cursor
 
 function el(tag, attrs, text) {
   const e = document.createElementNS(NS, tag);
@@ -65,6 +66,7 @@ function draw(c) {
       prev = r.handler_id;
     }
   }
+  plot = { svg: svg, sx: sx };
   return svg;
 }
 
@@ -97,6 +99,16 @@ export async function showCurve(host, shotId) {
   const note = document.createElement('p'); note.className = 'hint';
   note.textContent = 'The curve values the real possession; moves on the board do not change it.';
   card.appendChild(note); host.appendChild(card);
+}
+
+// A vertical line at time t over the drawn curve; null removes it. No-op when nothing is drawn.
+export function setCursor(t) {
+  if (!plot || !plot.svg.isConnected) return;
+  const old = plot.svg.querySelector('[data-cursor]');
+  if (old) old.remove();
+  if (t === null || t === undefined || Number.isNaN(t)) return;
+  const x = plot.sx(t);
+  plot.svg.appendChild(el('line', { x1: x, y1: T, x2: x, y2: H - B, stroke: '#2457a6', 'stroke-width': 1.5, 'data-cursor': '1', 'pointer-events': 'none' }));
 }
 
 export function mount(section) {}

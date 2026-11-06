@@ -203,6 +203,7 @@ def test_static_files_are_wired_and_small(client: TestClient) -> None:
         "board.js",
         "shot.js",
         "curve.js",
+        "play.js",
         "players.js",
         "games.js",
         "ask.js",
