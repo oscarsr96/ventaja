@@ -9,14 +9,22 @@ from typing import Any
 
 import polars as pl
 
-from ventaja.config import Settings
+from ventaja.config import FPS, Settings
 from ventaja.data.build import write_parquet_atomic
-from ventaja.data.load import load_decisions, meta_people
+from ventaja.data.load import load_curves, load_decisions, meta_people
 from ventaja.decision.align import Aligner
 from ventaja.errors import DataNotFoundError, VentajaError
 from ventaja.model.snapshot import BallPos, PlayerPos, Snapshot
 
-__all__ = ["FRAME_SCHEMA", "ROSTER_FILE", "ROSTER_SCHEMA", "build_frames", "snapshot_from_frame"]
+__all__ = [
+    "FRAME_SCHEMA",
+    "PLAY_SCHEMA",
+    "ROSTER_FILE",
+    "ROSTER_SCHEMA",
+    "build_frames",
+    "build_plays",
+    "snapshot_from_frame",
+]
 
 FRAME_SCHEMA: dict[str, Any] = {
     "shot_id": pl.String,
@@ -49,6 +57,17 @@ ROSTER_SCHEMA: dict[str, Any] = {
     "jersey": pl.String,  # nullable
     "team_id": pl.Int64,
     "team": pl.String,
+}
+PLAY_SCHEMA: dict[str, Any] = {
+    "shot_id": pl.String,
+    "frame_idx": pl.Int64,
+    "t": pl.Float32,  # seconds from the release frame (negative before)
+    "shot_clock": pl.Float32,  # null when unknown
+    "side": pl.String,  # "offense" | "defense" | "ball"
+    "player_id": pl.Int64,  # null on the ball row
+    "x": pl.Float32,
+    "y": pl.Float32,
+    "z": pl.Float32,  # ball height; null on player rows
 }
 _N_PER_SIDE = 5
 
@@ -105,6 +124,55 @@ def build_frames(game_id: int, settings: Settings, *, out_dir: Path | None = Non
     frames = pl.DataFrame(rows, schema=FRAME_SCHEMA)
     write_parquet_atomic(frames, path)
     _update_roster(frames, settings, out)
+    return path
+
+
+def _play_rows(shot_id: str, snap: Snapshot, release_frame: int) -> list[dict[str, Any]]:
+    """The rows of one tracked frame of a play: offense, defense, then the ball."""
+    shared: dict[str, Any] = {
+        "shot_id": shot_id,
+        "frame_idx": snap.frame_idx,
+        "t": (snap.frame_idx - release_frame) / FPS,
+        "shot_clock": snap.shot_clock,
+    }
+    rows = [
+        {**shared, "side": side, "player_id": p.player_id, "x": p.x, "y": p.y, "z": None}
+        for side, players in (("offense", snap.offense), ("defense", snap.defense))
+        for p in players
+    ]
+    ball = snap.ball
+    rows.append(
+        {**shared, "side": "ball", "player_id": None, "x": ball.x, "y": ball.y, "z": ball.z}
+    )
+    return rows
+
+
+def build_plays(game_id: int, settings: Settings, *, out_dir: Path | None = None) -> Path:
+    """Write ``{game_id}.parquet`` (``PLAY_SCHEMA``): the whole possession of every valued shot.
+
+    Valued shots are the rows of ``load_decisions`` with ``rule != "excluded"`` that also have
+    curves. Each play runs from the first frame of the shot's curve to one second after the
+    release (25 fps, every tracked frame), keeping only the frames of the shot's own possession
+    (the tail may spill into the next one, whose orientation is flipped). Written zstd-compressed
+    to ``out_dir`` (default: the build's ``plays/``). Returns the path.
+
+    Raises ``DataNotFoundError`` (naming ``ventaja curves build``) without the curves table.
+    """
+    curves = load_curves(game_id, settings)
+    starts = dict(curves.group_by("shot_id").agg(pl.col("frame_idx").min()).iter_rows())
+    aligner = Aligner(game_id, settings)
+    valued = load_decisions(game_id, settings).filter(pl.col("rule") != "excluded")
+    rows: list[dict[str, Any]] = []
+    for shot_id, release in valued.select("shot_id", "release_frame").iter_rows():
+        if shot_id not in starts:
+            continue
+        possession = aligner.snapshot_for_shot(shot_id, decision=True).possession_id
+        for snap in aligner.window(starts[shot_id], release + FPS):
+            if snap.possession_id == possession:
+                rows.extend(_play_rows(shot_id, snap, release))
+    out = out_dir if out_dir is not None else settings.plays_parquet(game_id).parent
+    path = out / f"{game_id}.parquet"
+    write_parquet_atomic(pl.DataFrame(rows, schema=PLAY_SCHEMA), path, compression="zstd")
     return path
 
 

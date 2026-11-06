@@ -213,10 +213,10 @@ def load_aggregates(name: str, settings: Settings) -> pl.DataFrame:
     return pl.read_parquet(path)
 
 
-ArtifactKind = Literal["decisions", "curves", "frames", "players"]
+ArtifactKind = Literal["decisions", "curves", "frames", "plays", "players"]
 
 # The per-game kinds keep ``{game_id}.parquet`` main tables, most with a secondary file next to
-# each (``frames`` has none).
+# each (``frames`` and ``plays`` have none).
 # ``players`` is not per game: its main table is ``players.parquet``, with ``teams.parquet`` next
 # to it, and its packaged copy sits directly in ``artifacts/`` (not in ``artifacts/players/``).
 _SECONDARY_SUFFIX: dict[str, str] = {
@@ -227,6 +227,7 @@ _BUILD_HINT: dict[ArtifactKind, str] = {
     "decisions": "decisions build",
     "curves": "curves build",
     "frames": "frames build",
+    "plays": "frames build",
     "players": "player build",
 }
 PLAYERS_FILE = "players.parquet"
@@ -275,6 +276,16 @@ def frame_files(settings: Settings) -> list[Path]:
 def load_frames(game_id: int, settings: Settings) -> pl.DataFrame:
     """The decision frames (10 players and the ball per valued shot) of a game."""
     return _artifact_table(game_id, "frames", f"{game_id}.parquet", settings)
+
+
+def play_files(settings: Settings) -> list[Path]:
+    """The ``{game_id}.parquet`` full-possession files of ``artifact_dir("plays")``."""
+    return _main_tables(artifact_dir("plays", settings), "plays")
+
+
+def load_plays(game_id: int, settings: Settings) -> pl.DataFrame:
+    """The full-possession tracking (25 fps, ``PLAY_SCHEMA``) of a game's valued shots."""
+    return _artifact_table(game_id, "plays", f"{game_id}.parquet", settings)
 
 
 def load_roster(settings: Settings) -> pl.DataFrame:

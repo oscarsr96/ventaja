@@ -78,6 +78,10 @@ class Settings(BaseModel):
         """Path of the built decision frames (10 players and the ball) of a game's shots."""
         return self.build_dir / "frames" / f"{game_id}.parquet"
 
+    def plays_parquet(self, game_id: int) -> Path:
+        """Path of the built full-possession tracking (25 fps) of a game's valued shots."""
+        return self.build_dir / "plays" / f"{game_id}.parquet"
+
     def curve_summaries_parquet(self, game_id: int) -> Path:
         """Path of the built one-row-per-shot curve summaries of a game."""
         return self.build_dir / "curves" / f"{game_id}.summary.parquet"
