@@ -119,6 +119,8 @@ export function mount(section) {
   mount.loading = loading;
 }
 
+export function leave() { stop(); }   // the router calls this when another view takes over
+
 export async function update(state) {
   const mine = ++token;
   if (state.view !== 'shot') { stop(); return; }

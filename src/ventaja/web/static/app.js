@@ -51,8 +51,11 @@ export function navigate(patch) {
   location.hash = toHash(next);
 }
 
+let shown = null;   // the view on screen before this show(); null on the first render
 function show() {
   state = parseHash(location.hash);
+  if (shown && shown !== state.view && modules[shown].leave) modules[shown].leave();
+  shown = state.view;
   for (const v of VIEWS) sections[v].hidden = v !== state.view;
   for (const a of document.querySelectorAll('nav a')) a.classList.toggle('active', a.dataset.nav === state.view);
   modules[state.view].update(state);
