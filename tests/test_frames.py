@@ -1,3 +1,4 @@
+import shutil
 from pathlib import Path
 
 import polars as pl
@@ -5,16 +6,25 @@ import pytest
 from typer.testing import CliRunner
 
 from ventaja.cli import app
-from ventaja.config import Settings
+from ventaja.config import FPS, Settings
 from ventaja.data import load as load_module
 from ventaja.data.duck import connect
-from ventaja.data.load import load_decisions, load_frames, load_roster
+from ventaja.data.load import (
+    load_curves,
+    load_decisions,
+    load_frames,
+    load_plays,
+    load_roster,
+    play_files,
+)
 from ventaja.decision.align import Aligner
 from ventaja.decision.frames import (
     FRAME_SCHEMA,
+    PLAY_SCHEMA,
     ROSTER_SCHEMA,
     _update_roster,
     build_frames,
+    build_plays,
     snapshot_from_frame,
 )
 from ventaja.errors import DataNotFoundError, VentajaError
@@ -101,7 +111,7 @@ def test_frames_cli_build(
     result = CliRunner().invoke(app, ["frames", "build", "--game", "114243", "--out", str(out)])
     assert result.exit_code == 0, result.output
     assert "game 114243: 17 shots, 187 rows" in result.output
-    assert sorted(p.name for p in out.iterdir()) == ["114243.parquet", "roster.parquet"]
+    assert sorted(p.name for p in out.iterdir()) == ["114243.parquet", "plays", "roster.parquet"]
     assert CliRunner().invoke(app, ["frames", "build"]).exit_code == 2
 
 
@@ -147,3 +157,105 @@ def test_roster_dedups_player_listed_with_two_teams(
     _update_roster(pl.concat([frames, traded]), fixture_frames_built, tmp_path)  # fresh build
     roster = pl.read_parquet(tmp_path / "roster.parquet")
     assert roster["player_id"].is_unique().all()
+
+
+def test_build_plays_covers_the_possession(fixture_curves_built: Settings) -> None:
+    path = build_plays(GAME_ID, fixture_curves_built)
+    plays = pl.read_parquet(path)
+    assert dict(plays.schema) == PLAY_SCHEMA
+    decisions = _valued(fixture_curves_built)
+    curves = load_curves(GAME_ID, fixture_curves_built)
+    assert set(plays["shot_id"]) == set(curves["shot_id"]) & set(decisions["shot_id"])
+    one = plays.filter(pl.col("shot_id") == SHOT_ID)
+    release = decisions.filter(pl.col("shot_id") == SHOT_ID)["release_frame"][0]
+    first = curves.filter(pl.col("shot_id") == SHOT_ID)["frame_idx"].min()
+    assert one["frame_idx"].min() == first
+    assert one["frame_idx"].max() <= release + FPS
+    assert abs(one.filter(pl.col("frame_idx") == release)["t"][0]) < 1e-6
+    per_frame = one.group_by("frame_idx").len()
+    assert per_frame["len"].max() <= 11
+    assert set(one["side"]) == {"offense", "defense", "ball"}
+    ball = one.filter(pl.col("side") == "ball")
+    assert ball["player_id"].null_count() == ball.height
+    assert load_plays(GAME_ID, fixture_curves_built).height == plays.height
+
+
+def test_build_plays_decision_frame_is_inside_the_play(fixture_curves_built: Settings) -> None:
+    plays = pl.read_parquet(build_plays(GAME_ID, fixture_curves_built))
+    ranges = {
+        k[0]: (v["frame_idx"].min(), v["frame_idx"].max())
+        for k, v in plays.partition_by("shot_id", as_dict=True).items()
+    }
+    assert ranges
+    for shot_id, decision, release in (
+        _valued(fixture_curves_built)
+        .select("shot_id", "decision_frame", "release_frame")
+        .iter_rows()
+    ):
+        if shot_id in ranges:
+            first, last = ranges[shot_id]
+            assert first <= decision <= release <= last, shot_id
+
+
+def test_build_plays_cuts_the_next_possession(fixture_curves_built: Settings) -> None:
+    plays = pl.read_parquet(build_plays(GAME_ID, fixture_curves_built))
+    aligner = Aligner(GAME_ID, fixture_curves_built)
+    spilled = 0
+    for shot_id, release in (
+        _valued(fixture_curves_built).select("shot_id", "release_frame").iter_rows()
+    ):
+        frames = plays.filter(pl.col("shot_id") == shot_id)["frame_idx"].unique()
+        if frames.is_empty():
+            continue
+        possession = aligner.snapshot_for_shot(shot_id, decision=True).possession_id
+        tail = list(aligner.window(frames.min(), release + FPS))
+        other = {s.frame_idx for s in tail if s.possession_id != possession}
+        spilled += bool(other)
+        assert not other & set(frames.to_list()), shot_id  # no frame of another possession
+        kept = {s.frame_idx for s in tail if s.possession_id == possession}
+        decision = _valued(fixture_curves_built).filter(pl.col("shot_id") == shot_id)[
+            "decision_frame"
+        ][0]
+        assert set(frames.to_list()) == kept | {decision}, shot_id
+    assert spilled > 0  # the fixture has a shot whose tail leaves the possession
+
+
+def test_build_plays_needs_curves(
+    fixture_curves_built: Settings, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(load_module, "ARTIFACTS_DIR", tmp_path / "no-artifacts")
+    build = tmp_path / "build"
+    shutil.copytree(
+        fixture_curves_built.build_dir, build, ignore=shutil.ignore_patterns("curves", "plays")
+    )
+    settings = Settings(data_dir=fixture_curves_built.data_dir, build_dir=build)
+    with pytest.raises(DataNotFoundError, match="curves build"):
+        build_plays(GAME_ID, settings)
+
+
+def test_frames_build_cli_writes_plays_unless_skipped(
+    fixture_curves_built: Settings, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("VENTAJA_DATA_DIR", str(fixture_curves_built.data_dir))
+    monkeypatch.setenv("VENTAJA_BUILD_DIR", str(fixture_curves_built.build_dir))
+    runner = CliRunner()
+    out = tmp_path / "frames"
+    result = runner.invoke(app, ["frames", "build", "--game", str(GAME_ID), "--out", str(out)])
+    assert result.exit_code == 0, result.output
+    assert "plays:" in result.output
+    assert (tmp_path / "plays" / f"{GAME_ID}.parquet").exists()
+    other = tmp_path / "other"
+    result = runner.invoke(
+        app, ["frames", "build", "--game", str(GAME_ID), "--out", str(other), "--no-plays"]
+    )
+    assert result.exit_code == 0, result.output
+    assert (other / f"{GAME_ID}.parquet").exists()
+    assert not (other / "plays").exists() and not (tmp_path / "other" / "plays").exists()
+
+
+def test_packaged_plays_are_bounded(tmp_path: Path) -> None:
+    clean = Settings(data_dir=tmp_path / "raw", build_dir=tmp_path / "build")
+    files = play_files(clean)
+    assert len(files) == 10 and sum(p.stat().st_size for p in files) <= 30_000_000
+    plays = load_plays(191313, clean)
+    assert plays.filter(pl.col("shot_id") == "shot-191313-1-31").height > 11 * 25 * 3

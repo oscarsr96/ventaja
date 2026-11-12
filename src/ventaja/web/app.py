@@ -17,7 +17,7 @@ from starlette.responses import Response
 from ventaja import __version__
 from ventaja.board.engine import Board, court_payload
 from ventaja.config import FPS, Settings
-from ventaja.data.load import ARTIFACTS_DIR, frame_files, load_curves
+from ventaja.data.load import ARTIFACTS_DIR, frame_files, load_curves, load_plays
 from ventaja.errors import DataNotFoundError, VentajaError
 from ventaja.mcp.server import TOOL_NAMES, call_tool, create_server, render_glossary, tool_schemas
 from ventaja.mcp.service import AskService
@@ -174,6 +174,33 @@ def create_app(
             return _error(404, f"no advantage curve for {shot_id!r}")
         return _curve_payload(service, shot_id, rows)
 
+    plays: dict[
+        int, dict[tuple[Any, ...], pl.DataFrame]
+    ] = {}  # game -> shot -> rows, loaded on first use
+
+    @app.get("/api/play/{shot_id}", response_model=None)
+    def play(shot_id: str) -> Any:
+        decision = service.decisions.filter(pl.col("shot_id") == shot_id)
+        if decision.is_empty():
+            return _error(404, f"shot {shot_id} not found in the decisions tables")
+        row = decision.row(0, named=True)
+        if row["rule"] == "excluded":
+            return _error(404, f"shot {shot_id} is excluded: {row['reason']}")
+        game = int(row["game_id"])
+        if game not in plays:
+            try:
+                plays[game] = load_plays(game, settings).partition_by("shot_id", as_dict=True)
+            except DataNotFoundError:
+                return _error(
+                    404,
+                    f"no play data for game {game}; "
+                    f"run `ventaja frames build --game {game}` with the tracking",
+                )
+        rows = plays[game].get((shot_id,))
+        if rows is None:
+            return _error(404, f"shot {shot_id} has no play (no curve window)")
+        return _play_payload(shot_id, rows, (row["decision_frame"] - row["release_frame"]) / FPS)
+
     @app.get("/api/reel")
     def reel() -> dict[str, Any]:
         return _reel_clips(REPO_ROOT / "docs" / "reel")
@@ -262,6 +289,52 @@ def _curve_payload(service: AskService, shot_id: str, rows: pl.DataFrame) -> dic
         "release_t": 0.0,
         "window": window,
         "handlers": {str(h): jerseys.get(h) or str(h)[-2:] for h in handler_ids},
+    }
+
+
+_SIDE_RANK = {"offense": 0, "defense": 1}
+
+
+def _play_payload(shot_id: str, rows: pl.DataFrame, decision_t: float) -> dict[str, Any]:
+    """Frames of a possession sorted by time: players (offense then defense) and the ball."""
+    people = rows.filter(pl.col("side") != "ball").with_columns(
+        pl.col("side").replace_strict(_SIDE_RANK, return_dtype=pl.UInt8).alias("rank")
+    )
+    grouped = (
+        people.sort("rank", maintain_order=True)
+        .group_by("frame_idx", maintain_order=True)
+        .agg(
+            pl.col("t").first(),
+            pl.col("shot_clock").first(),
+            pl.concat_list(
+                pl.col("player_id").cast(pl.Float64), pl.col("x").round(2), pl.col("y").round(2)
+            ).alias("p"),
+        )
+        .sort("t")
+    )
+    balls = {
+        int(f): [round(x, 2), round(y, 2), round(z, 2)]
+        for f, x, y, z in rows.filter(pl.col("side") == "ball")
+        .select("frame_idx", "x", "y", "z")
+        .iter_rows()
+    }
+    frames = [
+        {
+            "t": round(t, 2),
+            "clock": None if clock is None or math.isnan(clock) else round(clock, 2),
+            "players": [[int(pid), x, y] for pid, x, y in people_rows],
+            "ball": balls.get(frame),
+        }
+        for frame, t, clock, people_rows in grouped.iter_rows()
+    ]
+    return {
+        "shot_id": shot_id,
+        "fps": FPS,
+        "t0": frames[0]["t"],
+        "t1": frames[-1]["t"],
+        "decision_t": round(decision_t, 2),
+        "release_t": 0.0,
+        "frames": frames,
     }
 
 

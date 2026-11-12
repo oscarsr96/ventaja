@@ -203,6 +203,7 @@ def test_static_files_are_wired_and_small(client: TestClient) -> None:
         "board.js",
         "shot.js",
         "curve.js",
+        "play.js",
         "players.js",
         "games.js",
         "ask.js",
@@ -297,6 +298,43 @@ def test_curve_payload(pkg_client: TestClient) -> None:
     none_shot = found["shots"][0]
     assert pkg_client.get(f"/api/curve/{none_shot['shot_id']}").json()["window"] is None
     assert pkg_client.get("/api/curve/shot-114243-9-9").status_code == 404
+
+
+def test_play_payload(pkg_client: TestClient) -> None:
+    p = pkg_client.get("/api/play/shot-191313-1-31").json()
+    assert p["fps"] == 25 and p["t0"] < p["decision_t"] < p["release_t"] == 0.0 < p["t1"]
+    ts = [f["t"] for f in p["frames"]]
+    assert ts == sorted(ts) and len(ts) > 25 * 3
+    assert ts[0] == p["t0"] and ts[-1] == p["t1"]
+    f = p["frames"][-1]
+    assert len(f["players"]) == 10 and len(f["players"][0]) == 3
+    assert f["ball"] is None or len(f["ball"]) == 3
+    assert any(abs(f["t"] - p["decision_t"]) < 0.05 for f in p["frames"])
+
+
+def test_play_404s(pkg_client: TestClient, service: AskService) -> None:
+    excluded = service.decisions.filter(pl.col("rule") == "excluded")["shot_id"][0]
+    for shot_id, needle in [("shot-114243-9-9", "not found"), (excluded, "is excluded")]:
+        r = pkg_client.get(f"/api/play/{shot_id}")
+        assert r.status_code == 404 and needle in r.json()["error"], shot_id
+
+
+def test_play_404_for_a_valued_shot_without_a_play(
+    pkg_client: TestClient, service: AskService
+) -> None:
+    shot_id = "shot-184439-2-71"  # valued, but its possession leaves no curve window
+    valued = service.decisions.filter(pl.col("shot_id") == shot_id)
+    assert valued.height == 1 and valued["rule"][0] != "excluded"
+    r = pkg_client.get(f"/api/play/{shot_id}")
+    assert r.status_code == 404 and "has no play" in r.json()["error"]
+
+
+def test_play_without_table_hints_the_build(tmp_path: Path) -> None:
+    settings = decisions_for_all_frames_for_one(tmp_path)  # decisions + frames of 114243
+    (settings.build_dir / "plays").mkdir()  # a main table of another game hides the packaged ones
+    shutil.copy(ARTIFACTS_DIR / "plays" / "191313.parquet", settings.build_dir / "plays")
+    r = TestClient(create_app(settings)).get(f"/api/play/{SHOT_ID}")
+    assert r.status_code == 404 and "frames build --game 114243" in r.json()["error"]
 
 
 def test_curve_without_summary_row(tmp_path: Path) -> None:

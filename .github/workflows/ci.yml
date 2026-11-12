@@ -60,6 +60,7 @@ jobs:
           curl -sf http://127.0.0.1:8765/api/featured | grep -q default_shot
           curl -sf http://127.0.0.1:8765/api/ask/schema | grep -q what_if
           curl -sf http://127.0.0.1:8765/api/curve/shot-191313-1-31 | grep -q decision_t
+          curl -sf http://127.0.0.1:8765/api/play/shot-114243-1-0 | grep -q decision_t
           kill %1
 
   pipeline-all:

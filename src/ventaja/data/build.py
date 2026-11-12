@@ -5,7 +5,7 @@ import json
 import re
 from collections.abc import Iterator
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 import polars as pl
 
@@ -250,11 +250,16 @@ def build_tracking(game_id: int, settings: Settings) -> Path:
     return out
 
 
-def write_parquet_atomic(df: pl.DataFrame, path: Path) -> None:
+ParquetCompression = Literal["lz4", "uncompressed", "snappy", "gzip", "brotli", "zstd"]
+
+
+def write_parquet_atomic(
+    df: pl.DataFrame, path: Path, *, compression: ParquetCompression = "zstd"
+) -> None:
     """Write ``df`` to a ``.tmp`` sibling and rename it, so readers never see a partial file."""
     path.parent.mkdir(parents=True, exist_ok=True)
     tmp = path.with_name(path.name + ".tmp")
-    df.write_parquet(tmp)
+    df.write_parquet(tmp, compression=compression)
     tmp.replace(path)
 
 
